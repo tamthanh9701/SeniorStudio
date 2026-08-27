@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { getEnv } from "@/env";
+import { requireOpenAIKey } from "@/env";
 import { getServiceClient } from "@/supabase/server";
 import { ingestImage } from "@/lib/assets/service";
 import {
@@ -12,8 +12,8 @@ let openaiClient: OpenAI | null = null;
 
 function getOpenAIClient() {
   if (!openaiClient) {
-    const env = getEnv();
-    openaiClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    const apiKey = requireOpenAIKey();
+    openaiClient = new OpenAI({ apiKey });
   }
   return openaiClient;
 }
@@ -37,7 +37,7 @@ export interface EditImageParams {
 }
 
 export async function generateImage(params: GenerateImageParams) {
-  const env = getEnv();
+  const env = { OPENAI_ORCHESTRATOR_MODEL: "gpt-5.6" };
   const serviceClient = getServiceClient();
   
   // Create generation run
@@ -129,7 +129,7 @@ export async function generateImage(params: GenerateImageParams) {
 }
 
 export async function editImage(params: EditImageParams) {
-  const env = getEnv();
+  const env = { OPENAI_ORCHESTRATOR_MODEL: "gpt-5.6" };
   const serviceClient = getServiceClient();
 
   // Verify parent version exists

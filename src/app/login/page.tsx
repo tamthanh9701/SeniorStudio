@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { createClient } from "@/supabase/client";
-import { getEnv } from "@/env";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -14,13 +13,13 @@ export default function LoginPage() {
     setLoading(true);
     setMessage("");
 
-    const env = getEnv();
+    const origin = window.location.origin;
     const supabase = createClient();
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+        emailRedirectTo: `${origin}/auth/callback`,
       },
     });
 

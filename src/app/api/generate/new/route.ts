@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
-import { generateImage } from "@/lib/openai/images";
+import { requireOpenAIKey } from "@/env";
 
 export async function POST(request: Request) {
+  // Check if OpenAI direct generation is configured
+  try {
+    requireOpenAIKey();
+  } catch {
+    return NextResponse.json(
+      { error: "Direct generation not configured. Use MCP handoff from ChatGPT." },
+      { status: 503 }
+    );
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -28,6 +38,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const { generateImage } = await import("@/lib/openai/images");
     const results = [];
     
     // Generate images in parallel (up to 4)

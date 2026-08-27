@@ -1,13 +1,12 @@
 import { NextRequest } from "next/server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { server } from "@/lib/mcp/server";
-import { verifyJwt } from "@/lib/auth0";
 import { getEnv } from "@/env";
 
 export async function POST(request: NextRequest) {
   const env = getEnv();
   
-  // Check for OAuth token
+  // Check for Supabase JWT token
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return new Response(
@@ -16,11 +15,6 @@ export async function POST(request: NextRequest) {
         error: {
           code: -32001,
           message: "Unauthorized",
-          data: {
-            _meta: {
-              "mcp/www_authenticate": "Bearer",
-            },
-          },
         },
         id: null,
       }),
@@ -28,7 +22,6 @@ export async function POST(request: NextRequest) {
         status: 401,
         headers: {
           "Content-Type": "application/json",
-          "WWW-Authenticate": 'Bearer resource_metadata="/api/mcp/.well-known/oauth-protected-resource"',
         },
       }
     );
@@ -37,10 +30,26 @@ export async function POST(request: NextRequest) {
   const token = authHeader.slice(7);
   
   try {
-    const claims = await verifyJwt(token);
+    // Verify Supabase JWT and get user
+    const supabase = await import("@/supabase/server").then(m => m.createClient());
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32001,
+            message: "Invalid token",
+          },
+          id: null,
+        }),
+        { status: 401 }
+      );
+    }
     
     // Verify email matches owner
-    if (claims.email.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
+    if (user.email?.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
       return new Response(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -60,7 +69,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Set auth info on server
-    (server as any).authInfo = { userId: claims.sub, email: claims.email };
+    (server as any).authInfo = { userId: user.id, email: user.email };
 
     await server.connect(transport);
     

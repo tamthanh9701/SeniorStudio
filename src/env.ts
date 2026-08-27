@@ -1,15 +1,13 @@
 import { z } from "zod";
 
 export const envSchema = z.object({
-  NEXT_PUBLIC_APP_URL: z.string().url(),
+  NEXT_PUBLIC_APP_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   OWNER_EMAIL: z.string().email(),
-  AUTH0_ISSUER_BASE_URL: z.string().url(),
-  AUTH0_AUDIENCE: z.string().min(1),
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_ORCHESTRATOR_MODEL: z.string().default("gpt-5.6"),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_ORCHESTRATOR_MODEL: z.string().default("gpt-5.6").optional(),
   CRON_SECRET: z.string().min(1),
 });
 
@@ -26,4 +24,12 @@ export function getEnv(): Env {
   
   _env = result.data;
   return _env;
+}
+
+export function requireOpenAIKey(): string {
+  const env = getEnv();
+  if (!env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is required for direct generation");
+  }
+  return env.OPENAI_API_KEY;
 }
