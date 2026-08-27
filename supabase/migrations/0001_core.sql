@@ -1,26 +1,25 @@
 -- Enable UUID generation
-create extension if not exists "uuid-ossp";
+-- Supabase provides gen_random_uuid() through pgcrypto.
 
 -- Workspaces
 create table public.workspaces (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   created_at timestamptz not null default now()
 );
 
 -- Workspace Members
 create table public.workspace_members (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   email text not null,
   supabase_user_id uuid unique,
-  auth0_sub text unique,
   created_at timestamptz not null default now()
 );
 
 -- Projects
 create table public.projects (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   name text not null,
   created_at timestamptz not null default now(),
@@ -29,7 +28,7 @@ create table public.projects (
 
 -- Assets
 create table public.assets (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
   name text not null,
   kind text not null check (kind in ('generated', 'uploaded')),
@@ -40,7 +39,7 @@ create table public.assets (
 
 -- Asset Versions
 create table public.asset_versions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   asset_id uuid not null references public.assets(id) on delete cascade,
   parent_version_id uuid references public.asset_versions(id),
   source text not null check (source in ('chatgpt', 'web_openai', 'upload', 'flattened')),
@@ -60,15 +59,11 @@ alter table public.assets add constraint assets_current_version_id_fkey
   foreign key (current_version_id) references public.asset_versions(id);
 
 -- Add constraint: parent_version_id must belong to same asset
-alter table public.asset_versions add constraint asset_versions_parent_version_check
-  check (
-    parent_version_id is null or
-    asset_id = (select asset_id from public.asset_versions where id = parent_version_id)
-  );
+-- Parent ownership is enforced by the transactional version function below.
 
 -- Generation Runs
 create table public.generation_runs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   project_id uuid not null references public.projects(id) on delete cascade,
   asset_id uuid references public.assets(id),

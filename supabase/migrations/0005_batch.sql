@@ -1,6 +1,6 @@
 -- Batch Runs
 create table public.batch_runs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   project_id uuid not null references public.projects(id) on delete cascade,
   preset_id uuid references public.presets(id),
@@ -11,7 +11,7 @@ create table public.batch_runs (
 
 -- Batch Items
 create table public.batch_items (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   batch_run_id uuid not null references public.batch_runs(id) on delete cascade,
   asset_id uuid not null references public.assets(id) on delete cascade,
   parent_version_id uuid references public.asset_versions(id),

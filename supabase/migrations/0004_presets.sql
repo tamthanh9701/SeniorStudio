@@ -1,6 +1,6 @@
 -- Presets
 create table public.presets (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   name text not null,
   kind text not null check (kind in ('generation', 'edit', 'document')),

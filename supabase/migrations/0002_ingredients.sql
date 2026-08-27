@@ -1,6 +1,6 @@
 -- Project Ingredients
 create table public.project_ingredients (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
   alias text not null,
   asset_id uuid not null references public.assets(id) on delete cascade,

@@ -1,6 +1,6 @@
 -- Editor Documents
 create table public.editor_documents (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   asset_id uuid not null references public.assets(id) on delete cascade,
   base_version_id uuid not null references public.asset_versions(id) on delete cascade,
   schema_version integer not null default 1,
