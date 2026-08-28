@@ -1,12 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/supabase/client";
 
-export default function LoginPage() {
+function LoginInner() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const error = searchParams.get("error");
+    if (error) {
+      setMessage(decodeURIComponent(error));
+    }
+  }, [searchParams]);
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -65,12 +74,20 @@ export default function LoginPage() {
             {loading ? "Sending..." : "Send Magic Link"}
           </button>
           {message && (
-            <p role="status" className="text-center text-sm text-gray-600">
+            <p role="status" className="text-center text-sm text-red-600">
               {message}
             </p>
           )}
         </form>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }
