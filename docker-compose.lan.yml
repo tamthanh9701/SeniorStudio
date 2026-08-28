@@ -1,0 +1,4 @@
+services:
+  browser-bridge:
+    ports:
+      - "${BRIDGE_LAN_IP:?Set BRIDGE_LAN_IP}:6080:6080"
