@@ -1,3 +1,5 @@
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import type { BridgeConfig } from "../config.js";
 import { findComposer } from "./page.js";
@@ -9,8 +11,18 @@ export class ChatGptSession {
   private page: Page | null = null;
   constructor(private readonly config: BridgeConfig) {}
 
+  private async removeStaleProfileLocks() {
+    await Promise.all(["SingletonLock", "SingletonCookie", "SingletonSocket"].map((name) =>
+      rm(path.join(this.config.CHATGPT_PROFILE_DIR, name), { force: true, recursive: true })
+    ));
+  }
+
   async start(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return this.page;
+    await this.context?.close().catch(() => undefined);
+    this.context = null;
+    this.page = null;
+    await this.removeStaleProfileLocks();
     this.context = await chromium.launchPersistentContext(this.config.CHATGPT_PROFILE_DIR, {
       headless: this.config.CHATGPT_HEADLESS,
       executablePath: this.config.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
