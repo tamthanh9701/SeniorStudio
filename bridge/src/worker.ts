@@ -22,7 +22,14 @@ export class BrowserBridgeWorker {
       while (!this.stopped) {
         await this.store.heartbeat("online", this.snapshot.activeJobId);
         const job = await this.store.claim();
-        if (!job) { this.snapshot.state = "idle"; await sleep(this.config.CHATGPT_POLL_INTERVAL_MS); continue; }
+        if (!job) {
+          this.snapshot.state = "idle";
+          await this.session.start().then((page) => { this.snapshot.currentUrl = page.url(); }).catch((error) => {
+            this.snapshot.errorCode = error instanceof Error ? error.message : "BROWSER_START_FAILED";
+          });
+          await sleep(this.config.CHATGPT_POLL_INTERVAL_MS);
+          continue;
+        }
         await this.process(job);
       }
     } finally { clearInterval(heartbeat); await this.session.close(); }

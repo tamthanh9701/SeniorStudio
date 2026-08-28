@@ -24,11 +24,11 @@ export class ChatGptSession {
 
   async readyPage(): Promise<Page> {
     const page = await this.start();
-    if (!await findComposer(page, 10_000)) {
-      const signIn = page.getByRole("button", { name: /log in|sign in|continue/i }).or(page.getByRole("link", { name: /log in|sign in/i }));
-      if (await signIn.first().isVisible().catch(() => false) || /challenge|auth/.test(page.url())) throw new LoginRequiredError("Manual ChatGPT login required");
-      throw new Error("CHATGPT_UI_CHANGED");
+    const signIn = page.getByRole("button", { name: /log in|sign in|continue/i }).or(page.getByRole("link", { name: /log in|sign in/i }));
+    if (await signIn.first().isVisible().catch(() => false) || /challenge|auth/.test(page.url())) {
+      throw new LoginRequiredError("Manual ChatGPT login required");
     }
+    if (!await findComposer(page, 10_000)) throw new Error("CHATGPT_UI_CHANGED");
     return page;
   }
 
