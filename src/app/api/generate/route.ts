@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     requireOpenAIKey();
   } catch {
     return NextResponse.json(
-      { error: "Direct generation not configured. Use MCP handoff from ChatGPT." },
+      { error: "Direct Responses API generation is not configured. Use project chat." },
       { status: 503 }
     );
   }

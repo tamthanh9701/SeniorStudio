@@ -17,6 +17,7 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_ORCHESTRATOR_MODEL: z.string().optional(),
   CRON_SECRET: z.string().min(1),
+  BRIDGE_NOVNC_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

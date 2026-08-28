@@ -1,0 +1,24 @@
+{
+  "name": "seniorstudio-browser-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
+    "playwright": "1.62.1",
+    "sharp": "^0.35.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.20.6",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}

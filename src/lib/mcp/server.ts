@@ -10,6 +10,7 @@ export function createMcpServer() {
   const server = new McpServer({
     name: "SeniorStudio",
     version: "1.0.0",
+    description: "ChatGPT-to-SeniorStudio project and asset operations. Browser generation is initiated only by authenticated SeniorStudio web APIs.",
   });
 
 // Helper to get workspace from claims
@@ -295,7 +296,8 @@ server.registerTool(
       projectId: project_id,
       fileUrl: image.download_url,
       source: "chatgpt",
-      prompt: prompt || name,
+      name,
+      prompt,
       metadata: { notes, file_id: image.file_id },
     });
 
@@ -344,21 +346,17 @@ server.registerTool(
     const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
     const serviceClient = getServiceClient();
 
-    // Verify parent version exists and belongs to same asset
-    const { data: parentVersion } = await serviceClient
-      .from("asset_versions")
-      .select("asset_id")
-      .eq("id", parent_version_id)
+    const { data: asset, error: assetError } = await serviceClient
+      .from("assets")
+      .select("project_id")
+      .eq("id", asset_id)
       .single();
-
-    if (!parentVersion || parentVersion.asset_id !== asset_id) {
-      throw new Error("VERSION_CONFLICT");
-    }
+    if (assetError || !asset) throw new Error("NOT_FOUND");
 
     const result = await ingestImage({
       client: serviceClient,
       workspaceId,
-      projectId: "", // Will be derived from asset
+      projectId: asset.project_id,
       assetId: asset_id,
       parentVersionId: parent_version_id,
       fileUrl: image.download_url,

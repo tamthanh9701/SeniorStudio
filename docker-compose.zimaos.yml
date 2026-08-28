@@ -1,0 +1,37 @@
+services:
+  browser-bridge:
+    build:
+      context: .
+      dockerfile: ${BRIDGE_DOCKERFILE:-bridge/Dockerfile}
+    restart: unless-stopped
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      BRIDGE_WORKER_ID: ${BRIDGE_WORKER_ID:-zimaos-primary}
+      CHATGPT_PROFILE_DIR: /data/chrome-profile
+      CHATGPT_DIAGNOSTICS_DIR: /data/diagnostics
+      CHATGPT_JOB_TIMEOUT_SECONDS: ${CHATGPT_JOB_TIMEOUT_SECONDS:-300}
+      CHATGPT_POLL_INTERVAL_MS: ${CHATGPT_POLL_INTERVAL_MS:-2000}
+      CHATGPT_HEADLESS: "false"
+      BRIDGE_ADMIN_PORT: 8787
+      BRIDGE_BROWSER_URL: ${BRIDGE_BROWSER_URL:-https://chatgpt-bridge.example.com}
+    volumes:
+      - chatgpt-profile:/data/chrome-profile
+      - bridge-diagnostics:/data/diagnostics
+    expose:
+      - "6080"
+      - "8787"
+    shm_size: 2gb
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - browser-bridge
+
+volumes:
+  chatgpt-profile:
+  bridge-diagnostics:
