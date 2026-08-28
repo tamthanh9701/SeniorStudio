@@ -12,10 +12,14 @@ export default async function ProjectsPage() {
     redirect("/login");
   }
 
-  const { data: projects } = await supabase
+  const { data: projects, error: projectsError } = await supabase
     .from("projects")
     .select("*")
     .order("created_at", { ascending: false });
+
+  if (projectsError) {
+    throw new Error(`Unable to load projects: ${projectsError.message}`);
+  }
 
   return (
     <div className="min-h-screen p-8">
