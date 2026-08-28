@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSignedUrl } from "@/lib/assets/service";
 import { createClient } from "@/supabase/server";
-import { ProjectChat } from "@/components/chat/ProjectChat";
 
 interface ProjectPageProps {
   params: Promise<{ projectId: string }>;
@@ -77,12 +76,11 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
             Created {new Date(project.created_at).toLocaleDateString()}
           </p>
         </div>
-        <ProjectChat projectId={projectId} />
 
 
         {galleryAssets.length === 0 ? (
           <div className="rounded-lg border border-dashed p-12 text-center text-gray-500">
-            No images saved yet. Use the project chat above to generate the first image.
+            No images saved yet. Generate or edit an image in ChatGPT, then use the SeniorStudio MCP save tool to store the exact result in this project.
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">

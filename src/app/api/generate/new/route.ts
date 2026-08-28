@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     requireOpenAIKey();
   } catch {
     return NextResponse.json(
-      { error: "Direct Responses API generation is not configured. Use project chat." },
+      { error: "Direct Responses API generation is not configured. Generate in ChatGPT and save the result through SeniorStudio MCP." },
       { status: 503 }
     );
   }
