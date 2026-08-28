@@ -5,7 +5,7 @@ describe("Environment Validation", () => {
   const validEnv = {
     NEXT_PUBLIC_APP_URL: "http://localhost:3000",
     NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-key",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-key",
     SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
     OWNER_EMAIL: "owner@example.com",
     AUTH0_ISSUER_BASE_URL: "https://example.auth0.com/",
