@@ -82,8 +82,20 @@ async function verifyIdentity(token: string): Promise<{
     try {
       const { verifyAuth0Token } = await import("@/lib/auth0");
       const claims = await verifyAuth0Token(token);
-      if (!claims.email || claims.email_verified !== true) return null;
+      if (!claims.email || claims.email_verified !== true) {
+        console.warn("mcp_auth_rejected", {
+          stage: "auth0_identity",
+          hasEmail: Boolean(claims.email),
+          emailVerified: claims.email_verified === true,
+        });
+        return null;
+      }
 
+      console.info("mcp_auth_verified", {
+        provider: "auth0",
+        clientId: claims.clientId,
+        scopes: claims.scopes,
+      });
       return {
         identity: {
           subject: claims.sub,
@@ -94,8 +106,10 @@ async function verifyIdentity(token: string): Promise<{
         scopes: claims.scopes,
         expiresAt: claims.exp,
       };
-    } catch {
-      // Supabase JWT fallback supports local MCP inspection and web sessions.
+    } catch (error) {
+      console.warn("mcp_auth0_verification_failed", {
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 
@@ -110,18 +124,33 @@ async function verifyIdentity(token: string): Promise<{
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
+  console.info("mcp_request", {
+    method: request.method,
+    hasBearerToken: authHeader?.startsWith("Bearer ") === true,
+  });
   if (!authHeader?.startsWith("Bearer ")) return unauthorized();
 
   const verified = await verifyIdentity(authHeader.slice(7));
-  if (!verified) return unauthorized("Invalid token");
+  if (!verified) {
+    console.warn("mcp_auth_rejected", { stage: "token_verification" });
+    return unauthorized("Invalid token");
+  }
 
   const ownerEmail = getEnv().OWNER_EMAIL.trim().toLowerCase();
   if (verified.identity.email.trim().toLowerCase() !== ownerEmail) {
+    console.warn("mcp_auth_rejected", {
+      stage: "owner_email",
+      provider: verified.identity.provider,
+    });
     return forbidden();
   }
 
   try {
     const context = await resolveMcpAuthContext(verified.identity);
+    console.info("mcp_workspace_resolved", {
+      provider: context.provider,
+      workspaceId: context.workspaceId,
+    });
     const authInfo: AuthInfo = {
       token: authHeader.slice(7),
       clientId: verified.clientId,
@@ -136,16 +165,22 @@ export async function POST(request: NextRequest) {
       },
     };
     const server = createMcpServer();
-
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    return transport.handleRequest(request, { authInfo });
+    const response = await transport.handleRequest(request, { authInfo });
+    console.info("mcp_response", {
+      method: request.method,
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+    });
+    return response;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal error";
+    console.error("mcp_request_failed", { message });
     return Response.json(
       {
         jsonrpc: "2.0",
