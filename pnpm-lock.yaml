@@ -17,6 +17,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.112.4
         version: 2.112.4
+      jose:
+        specifier: ^6.2.10
+        version: 6.2.10
       konva:
         specifier: ^10.3.2
         version: 10.3.2

@@ -6,8 +6,15 @@ export const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   OWNER_EMAIL: z.string().email(),
+
+  // Auth0 MCP OAuth (optional - only needed for ChatGPT connector)
+  AUTH0_ISSUER_BASE_URL: z.string().url().optional(),
+  AUTH0_AUDIENCE: z.string().min(1).optional(),
+
+  // OpenAI direct generation (optional - only needed for web generation)
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_ORCHESTRATOR_MODEL: z.string().default("gpt-5.6").optional(),
+
   CRON_SECRET: z.string().min(1),
 });
 
@@ -32,4 +39,15 @@ export function requireOpenAIKey(): string {
     throw new Error("OPENAI_API_KEY is required for direct generation");
   }
   return env.OPENAI_API_KEY;
+}
+
+export function requireAuth0Config() {
+  const env = getEnv();
+  if (!env.AUTH0_ISSUER_BASE_URL || !env.AUTH0_AUDIENCE) {
+    return null;
+  }
+  return {
+    issuerBaseURL: env.AUTH0_ISSUER_BASE_URL,
+    audience: env.AUTH0_AUDIENCE,
+  };
 }
