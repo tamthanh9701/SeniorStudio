@@ -1,209 +1,161 @@
 import { NextRequest } from "next/server";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { server } from "@/lib/mcp/server";
 import { getEnv, requireAuth0Config } from "@/env";
+import { MCP_RESOURCE, MCP_RESOURCE_METADATA } from "@/lib/auth0/metadata";
+import { resolveMcpAuthContext, type McpIdentity } from "@/lib/mcp/identity";
 
-export async function POST(request: NextRequest) {
-  const env = getEnv();
+const REQUIRED_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "assets:read",
+  "assets:write",
+  "projects:write",
+];
 
-  // Check for Bearer token
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    // Return 401 with OAuth challenge if Auth0 is configured
-    const auth0 = requireAuth0Config();
-    if (auth0) {
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          error: {
-            code: -32001,
-            message: "Unauthorized",
-            data: {
-              _meta: {
-                "mcp/www_authenticate": "Bearer",
-              },
-            },
+function unauthorized(message = "Unauthorized") {
+  return Response.json(
+    {
+      jsonrpc: "2.0",
+      error: {
+        code: -32001,
+        message,
+        data: {
+          _meta: {
+            "mcp/www_authenticate":
+              `Bearer resource_metadata="${MCP_RESOURCE_METADATA}", ` +
+              `scope="${REQUIRED_SCOPES.join(" ")}"`,
           },
-          id: null,
-        }),
-        {
-          status: 401,
-          headers: {
-            "Content-Type": "application/json",
-            "WWW-Authenticate":
-              'Bearer resource_metadata="/api/mcp/.well-known/oauth-protected-resource"',
-          },
-        }
-      );
-    }
-    return new Response(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message: "Unauthorized",
         },
-        id: null,
-      }),
-      { status: 401 }
-    );
+      },
+      id: null,
+    },
+    {
+      status: 401,
+      headers: {
+        "WWW-Authenticate":
+          `Bearer resource_metadata="${MCP_RESOURCE_METADATA}", ` +
+          `scope="${REQUIRED_SCOPES.join(" ")}"`,
+      },
+    }
+  );
+}
+
+function forbidden() {
+  return Response.json(
+    {
+      jsonrpc: "2.0",
+      error: { code: -32001, message: "Forbidden" },
+      id: null,
+    },
+    { status: 403 }
+  );
+}
+
+async function verifySupabaseIdentity(
+  token: string
+): Promise<McpIdentity | null> {
+  const { createClient } = await import("@/supabase/server");
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser(token);
+
+  if (error || !user?.email) return null;
+  return {
+    subject: user.id,
+    email: user.email,
+    provider: "supabase",
+  };
+}
+
+async function verifyIdentity(token: string): Promise<{
+  identity: McpIdentity;
+  clientId: string;
+  scopes: string[];
+  expiresAt?: number;
+} | null> {
+  if (requireAuth0Config()) {
+    try {
+      const { verifyAuth0Token } = await import("@/lib/auth0");
+      const claims = await verifyAuth0Token(token);
+      if (!claims.email || claims.email_verified !== true) return null;
+
+      return {
+        identity: {
+          subject: claims.sub,
+          email: claims.email,
+          provider: "auth0",
+        },
+        clientId: claims.clientId,
+        scopes: claims.scopes,
+        expiresAt: claims.exp,
+      };
+    } catch {
+      // Supabase JWT fallback supports local MCP inspection and web sessions.
+    }
   }
 
-  const token = authHeader.slice(7);
+  const identity = await verifySupabaseIdentity(token);
+  if (!identity) return null;
+  return {
+    identity,
+    clientId: "seniorstudio-web",
+    scopes: REQUIRED_SCOPES,
+  };
+}
+
+export async function POST(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return unauthorized();
+
+  const verified = await verifyIdentity(authHeader.slice(7));
+  if (!verified) return unauthorized("Invalid token");
+
+  const ownerEmail = getEnv().OWNER_EMAIL.trim().toLowerCase();
+  if (verified.identity.email.trim().toLowerCase() !== ownerEmail) {
+    return forbidden();
+  }
 
   try {
-    let userId: string;
-    let email: string;
-
-    // Strategy 1: Try Auth0 JWT (for ChatGPT connector)
-    const auth0 = requireAuth0Config();
-    if (auth0) {
-      try {
-        const { verifyAuth0Token } = await import("@/lib/auth0");
-        const claims = await verifyAuth0Token(token);
-
-        if (claims.email.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32001, message: "Forbidden" },
-              id: null,
-            }),
-            { status: 403 }
-          );
-        }
-
-        userId = claims.sub;
-        email = claims.email;
-      } catch {
-        // Auth0 verification failed, try Supabase next
-        const supabase = await import("@/supabase/server").then((m) =>
-          m.createClient()
-        );
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser(token);
-
-        if (error || !user) {
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32001, message: "Invalid token" },
-              id: null,
-            }),
-            { status: 401 }
-          );
-        }
-
-        if (user.email?.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32001, message: "Forbidden" },
-              id: null,
-            }),
-            { status: 403 }
-          );
-        }
-
-        userId = user.id;
-        email = user.email;
-      }
-    } else {
-      // Strategy 2: Supabase JWT only (no Auth0 configured)
-      const supabase = await import("@/supabase/server").then((m) =>
-        m.createClient()
-      );
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser(token);
-
-      if (error || !user) {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32001, message: "Invalid token" },
-            id: null,
-          }),
-          { status: 401 }
-        );
-      }
-
-      if (user.email?.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32001, message: "Forbidden" },
-            id: null,
-          }),
-          { status: 403 }
-        );
-      }
-
-      userId = user.id;
-      email = user.email;
-    }
-
-    // Create transport with auth info
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-
-    // Set auth info on server
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (server as any).authInfo = { userId, email };
-
-    await server.connect(transport);
-
-    const body = await request.json();
-
-    // Convert NextRequest to compatible format
-    const compatibleRequest = {
-      method: request.method,
-      headers: Object.fromEntries(request.headers.entries()),
-      url: request.url,
-      body: body,
+    const context = await resolveMcpAuthContext(verified.identity);
+    const authInfo: AuthInfo = {
+      token: authHeader.slice(7),
+      clientId: verified.clientId,
+      scopes: verified.scopes,
+      expiresAt: verified.expiresAt,
+      resource: new URL(MCP_RESOURCE),
+      extra: {
+        userId: context.userId,
+        workspaceId: context.workspaceId,
+        email: context.email,
+        provider: context.provider,
+      },
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await transport.handleRequest(compatibleRequest as any, body);
-
-    return new Response(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      JSON.stringify((transport as any).response),
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    await server.connect(transport);
+    return transport.handleRequest(request, { authInfo });
   } catch (error) {
-    return new Response(
-      JSON.stringify({
+    const message =
+      error instanceof Error ? error.message : "Internal error";
+    return Response.json(
+      {
         jsonrpc: "2.0",
-        error: {
-          code: -32603,
-          message: "Internal error",
-        },
+        error: { code: -32603, message },
         id: null,
-      }),
+      },
       { status: 500 }
     );
   }
 }
 
-export async function GET() {
-  return new Response(
-    JSON.stringify({
-      jsonrpc: "2.0",
-      error: {
-        code: -32600,
-        message: "Method not allowed",
-      },
-      id: null,
-    }),
-    { status: 405 }
-  );
+export async function GET(request: NextRequest) {
+  return POST(request);
 }

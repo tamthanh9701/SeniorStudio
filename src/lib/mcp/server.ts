@@ -10,7 +10,12 @@ const server = new McpServer({
 });
 
 // Helper to get workspace from claims
-async function getWorkspaceId(userId: string) {
+async function getWorkspaceId(
+  userId: string,
+  workspaceId?: string
+) {
+  if (workspaceId) return workspaceId;
+
   const serviceClient = getServiceClient();
   const { data, error } = await serviceClient
     .from("workspace_members")
@@ -28,10 +33,13 @@ server.tool(
   "Create a new project",
   { name: z.string().min(1).max(100) },
   async ({ name }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
-    const workspaceId = await getWorkspaceId(userId.userId);
+    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
     const serviceClient = getServiceClient();
 
     const { data, error } = await serviceClient
@@ -51,10 +59,13 @@ server.tool(
   "List all projects",
   {},
   async (_, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
-    const workspaceId = await getWorkspaceId(userId.userId);
+    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
     const serviceClient = getServiceClient();
 
     const { data, error } = await serviceClient
@@ -78,8 +89,11 @@ server.tool(
     limit: z.number().min(1).max(50).default(20),
   },
   async ({ project_id, cursor, limit }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
     const serviceClient = getServiceClient();
     let query = serviceClient
@@ -116,8 +130,11 @@ server.tool(
   "Get asset details with current version",
   { asset_id: z.string().uuid() },
   async ({ asset_id }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
     const serviceClient = getServiceClient();
     const { data: asset, error: assetError } = await serviceClient
@@ -158,8 +175,11 @@ server.tool(
   "Get version history for an asset",
   { asset_id: z.string().uuid() },
   async ({ asset_id }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
     const serviceClient = getServiceClient();
     const { data: versions, error } = await serviceClient
@@ -182,8 +202,11 @@ server.tool(
     version_id: z.string().uuid().optional(),
   },
   async ({ asset_id, version_id }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
     const serviceClient = getServiceClient();
     const { data: asset, error: assetError } = await serviceClient
@@ -252,10 +275,13 @@ server.tool(
     notes: z.string().optional(),
   },
   async ({ project_id, image, name, prompt, notes }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
-    const workspaceId = await getWorkspaceId(userId.userId);
+    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
     const serviceClient = getServiceClient();
 
     const result = await ingestImage({
@@ -302,10 +328,13 @@ server.tool(
     notes: z.string().optional(),
   },
   async ({ asset_id, parent_version_id, image, prompt, notes }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
-    const workspaceId = await getWorkspaceId(userId.userId);
+    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
     const serviceClient = getServiceClient();
 
     // Verify parent version exists and belongs to same asset
@@ -357,8 +386,11 @@ server.tool(
     format: z.literal("original").optional(),
   },
   async ({ version_id, format }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
     const serviceClient = getServiceClient();
     const { data: version, error } = await serviceClient
@@ -396,8 +428,11 @@ server.tool(
     version_id: z.string().uuid().optional(),
   },
   async ({ asset_id, version_id }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+    const auth = extra.authInfo as
+      | { extra?: { userId?: string; workspaceId?: string } }
+      | undefined;
+    const userId = auth?.extra?.userId;
+    if (!userId) throw new Error("Unauthorized");
 
     const serviceClient = getServiceClient();
     const { data: asset, error: assetError } = await serviceClient

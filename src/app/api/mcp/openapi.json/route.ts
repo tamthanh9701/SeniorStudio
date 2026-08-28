@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireAuth0Config } from "@/env";
+import {
+  getAuth0Endpoints,
+  MCP_RESOURCE,
+  MCP_SCOPES,
+} from "@/lib/auth0/metadata";
 
 export async function GET() {
-  const config = requireAuth0Config();
-
-  if (!config) {
+  const auth0 = getAuth0Endpoints();
+  if (!auth0) {
     return NextResponse.json(
       { error: "Auth0 not configured" },
       { status: 503 }
@@ -17,43 +20,23 @@ export async function GET() {
       title: "SeniorStudio MCP API",
       version: "1.0.0",
     },
-    servers: [
-      {
-        url: "https://senior-studio.vercel.app/api/mcp",
-      },
-    ],
+    servers: [{ url: MCP_RESOURCE }],
     components: {
       securitySchemes: {
         oauth2: {
           type: "oauth2",
           flows: {
             authorizationCode: {
-              authorizationUrl: `${config.issuerBaseURL}/authorize`,
-              tokenUrl: `${config.issuerBaseURL}/oauth/token`,
-              scopes: {
-                openid: "OpenID Connect",
-                email: "Email address",
-                profile: "User profile",
-                "assets:read": "Read assets",
-                "assets:write": "Write assets",
-                "projects:write": "Write projects",
-              },
+              authorizationUrl: auth0.authorizationEndpoint,
+              tokenUrl: auth0.tokenEndpoint,
+              scopes: Object.fromEntries(
+                MCP_SCOPES.map((scope) => [scope, scope])
+              ),
             },
           },
         },
       },
     },
-    security: [
-      {
-        oauth2: [
-          "openid",
-          "email",
-          "profile",
-          "assets:read",
-          "assets:write",
-          "projects:write",
-        ],
-      },
-    ],
+    security: [{ oauth2: [...MCP_SCOPES] }],
   });
 }

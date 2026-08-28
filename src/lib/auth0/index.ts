@@ -1,55 +1,101 @@
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import {
+  createRemoteJWKSet,
+  jwtVerify,
+  type RemoteJWKSet,
+} from "jose";
 import { requireAuth0Config } from "@/env";
 
 export interface Auth0Claims {
   sub: string;
-  email: string;
-  email_verified: boolean;
-  iss: string;
-  aud: string;
-  exp: number;
-  iat: number;
-  scope?: string;
+  email?: string;
+  email_verified?: boolean;
+  scopes: string[];
+  exp?: number;
+  clientId: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _jwks: any = null;
+interface Auth0UserInfo {
+  sub?: unknown;
+  email?: unknown;
+  email_verified?: unknown;
+}
 
-function getJWKS() {
+let jwks: RemoteJWKSet | null = null;
+
+function getIssuer() {
   const config = requireAuth0Config();
   if (!config) throw new Error("Auth0 not configured");
+  return `${config.issuerBaseURL.replace(/\/+$/, "")}/`;
+}
 
-  if (!_jwks) {
-    const url = new URL(`${config.issuerBaseURL}/.well-known/jwks.json`);
-    _jwks = createRemoteJWKSet(url);
+function getJwks(): RemoteJWKSet {
+  if (!jwks) {
+    jwks = createRemoteJWKSet(
+      new URL(".well-known/jwks.json", getIssuer())
+    );
   }
-  return _jwks;
+  return jwks;
+}
+
+async function getUserInfo(token: string): Promise<Auth0UserInfo> {
+  const response = await fetch(new URL("userinfo", getIssuer()), {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) throw new Error("Auth0 UserInfo unavailable");
+  return response.json() as Promise<Auth0UserInfo>;
 }
 
 export async function verifyAuth0Token(token: string): Promise<Auth0Claims> {
   const config = requireAuth0Config();
   if (!config) throw new Error("Auth0 not configured");
 
-  const JWKS = getJWKS();
-
-  const { payload } = await jwtVerify(token, JWKS, {
-    issuer: config.issuerBaseURL,
+  const { payload } = await jwtVerify(token, getJwks(), {
+    issuer: getIssuer(),
     audience: config.audience,
   });
 
-  return {
-    sub: payload.sub!,
-    email: payload.email as string,
-    email_verified: payload.email_verified as boolean,
-    iss: payload.iss!,
-    aud: payload.aud as string,
-    exp: payload.exp!,
-    iat: payload.iat!,
-    scope: payload.scope as string | undefined,
-  };
-}
+  if (!payload.sub) throw new Error("Missing Auth0 subject");
 
-export function hasScope(claims: Auth0Claims, required: string): boolean {
-  if (!claims.scope) return false;
-  return claims.scope.split(" ").includes(required);
+  const scopeValue =
+    typeof payload.scope === "string"
+      ? payload.scope
+      : Array.isArray(payload.permissions)
+        ? payload.permissions.filter(
+            (permission): permission is string =>
+              typeof permission === "string"
+          ).join(" ")
+        : "";
+
+  let email =
+    typeof payload.email === "string" ? payload.email : undefined;
+  let emailVerified =
+    typeof payload.email_verified === "boolean"
+      ? payload.email_verified
+      : undefined;
+
+  if (!email || emailVerified !== true) {
+    const userInfo = await getUserInfo(token);
+    if (userInfo.sub !== payload.sub) {
+      throw new Error("Auth0 UserInfo subject mismatch");
+    }
+    email =
+      typeof userInfo.email === "string" ? userInfo.email : undefined;
+    emailVerified = userInfo.email_verified === true;
+  }
+
+  return {
+    sub: payload.sub,
+    email,
+    email_verified: emailVerified,
+    scopes: scopeValue.split(" ").filter(Boolean),
+    exp: payload.exp,
+    clientId:
+      typeof payload.azp === "string"
+        ? payload.azp
+        : typeof payload.client_id === "string"
+          ? payload.client_id
+          : "chatgpt",
+  };
 }
