@@ -82,11 +82,12 @@ async function verifyIdentity(token: string): Promise<{
     try {
       const { verifyAuth0Token } = await import("@/lib/auth0");
       const claims = await verifyAuth0Token(token);
-      if (!claims.email || claims.email_verified !== true) {
+      const configuredOwnerSub = getEnv().AUTH0_OWNER_SUB;
+      const email = claims.email;
+      if (!email && claims.sub !== configuredOwnerSub) {
         console.warn("mcp_auth_rejected", {
           stage: "auth0_identity",
-          hasEmail: Boolean(claims.email),
-          emailVerified: claims.email_verified === true,
+          reason: "missing_email_claim_and_unconfigured_subject",
         });
         return null;
       }
@@ -99,7 +100,7 @@ async function verifyIdentity(token: string): Promise<{
       return {
         identity: {
           subject: claims.sub,
-          email: claims.email,
+          email: email ?? getEnv().OWNER_EMAIL,
           provider: "auth0",
         },
         clientId: claims.clientId,
@@ -110,6 +111,7 @@ async function verifyIdentity(token: string): Promise<{
       console.warn("mcp_auth0_verification_failed", {
         message: error instanceof Error ? error.message : "Unknown error",
       });
+      return null;
     }
   }
 

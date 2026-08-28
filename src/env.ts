@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const publicEnvSchema = z.object({
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+});
+
 export const envSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
@@ -8,14 +13,25 @@ export const envSchema = z.object({
   OWNER_EMAIL: z.string().email(),
   AUTH0_ISSUER_BASE_URL: z.string().optional(),
   AUTH0_AUDIENCE: z.string().optional(),
+  AUTH0_OWNER_SUB: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_ORCHESTRATOR_MODEL: z.string().optional(),
   CRON_SECRET: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;
+export type PublicEnv = z.infer<typeof publicEnvSchema>;
 
-let _env: Env | null = null;
+export function getPublicEnv(): PublicEnv {
+  const result = publicEnvSchema.safeParse({
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  });
+  if (!result.success) {
+    throw new Error("Invalid public Supabase environment variables");
+  }
+  return result.data;
+}
 
 export function getEnv(): Env {
   const result = envSchema.safeParse(process.env);
@@ -24,8 +40,7 @@ export function getEnv(): Env {
     throw new Error("Invalid environment variables");
   }
 
-  _env = result.data;
-  return _env;
+  return result.data;
 }
 
 export function requireOpenAIKey(): string {
