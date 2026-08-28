@@ -1,13 +1,11 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { server } from "@/lib/mcp/server";
 
-// Add fullscreen editor resource
-server.resource(
-  "asset-card",
-  "ui://seniorstudio/asset-card.html",
-  async (uri) => {
-    return {
+export function registerMcpEditor(server: McpServer) {
+  server.resource(
+    "asset-card",
+    "ui://seniorstudio/asset-card.html",
+    async (uri) => ({
       contents: [
         {
           uri: uri.href,
@@ -46,53 +44,44 @@ server.resource(
     document.getElementById('image').src = params.get('url') || '';
     document.getElementById('title').textContent = params.get('name') || 'Asset';
     document.getElementById('meta').textContent = params.get('meta') || '';
-    
-    function openInStudio() {
-      window.open(params.get('studioUrl') || '/', '_blank');
-    }
-    
+    function openInStudio() { window.open(params.get('studioUrl') || '/', '_blank'); }
     function download() {
-      const a = document.createElement('a');
-      a.href = params.get('url') || '';
-      a.download = params.get('name') || 'download';
-      a.click();
+      const anchor = document.createElement('a');
+      anchor.href = params.get('url') || '';
+      anchor.download = params.get('name') || 'download';
+      anchor.click();
     }
   </script>
 </body>
 </html>`,
         },
       ],
-    };
-  }
-);
+    })
+  );
 
-// Add fullscreen editor tool
-server.tool(
-  "open_editor",
-  "Open fullscreen editor for an asset",
-  {
-    asset_id: z.string().uuid(),
-    version_id: z.string().uuid().optional(),
-  },
-  async ({ asset_id, version_id }, extra) => {
-    const userId = (extra as Record<string, unknown>)?.authInfo as { userId: string } | undefined;
-    if (!userId?.userId) throw new Error("Unauthorized");
+  server.tool(
+    "open_editor",
+    "Open fullscreen editor for an asset",
+    {
+      asset_id: z.string().uuid(),
+      version_id: z.string().uuid().optional(),
+    },
+    async ({ asset_id, version_id }, extra) => {
+      const userId = extra.authInfo?.extra?.userId;
+      if (typeof userId !== "string") throw new Error("Unauthorized");
 
-    // Return URL to web editor
-    const editorUrl = `/projects/placeholder/assets/${asset_id}/editor${version_id ? `?version=${version_id}` : ""}`;
+      const query = version_id ? `?version=${version_id}` : "";
+      const editorUrl =
+        `https://senior-studio.vercel.app/assets/${asset_id}/edit${query}`;
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            editor_url: editorUrl,
-            message: "Open this URL in a browser to access the fullscreen editor",
-          }),
-        },
-      ],
-    };
-  }
-);
-
-export { server };
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ editor_url: editorUrl }),
+          },
+        ],
+      };
+    }
+  );
+}

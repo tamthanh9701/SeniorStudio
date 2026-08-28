@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { server } from "@/lib/mcp/server";
+import { createMcpServer } from "@/lib/mcp/server";
 import { getEnv, requireAuth0Config } from "@/env";
 import { MCP_RESOURCE, MCP_RESOURCE_METADATA } from "@/lib/auth0/metadata";
 import { resolveMcpAuthContext, type McpIdentity } from "@/lib/mcp/identity";
@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
         provider: context.provider,
       },
     };
+    const server = createMcpServer();
 
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

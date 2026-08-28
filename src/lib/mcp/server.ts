@@ -3,11 +3,13 @@ import { z } from "zod";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getEnv } from "@/env";
 import { ingestImage, getSignedUrl } from "@/lib/assets/service";
+import { registerMcpEditor } from "@/lib/mcp/editor";
 
-const server = new McpServer({
-  name: "SeniorStudio",
-  version: "1.0.0",
-});
+export function createMcpServer() {
+  const server = new McpServer({
+    name: "SeniorStudio",
+    version: "1.0.0",
+  });
 
 // Helper to get workspace from claims
 async function getWorkspaceId(
@@ -475,4 +477,6 @@ server.tool(
   }
 );
 
-export { server };
+  registerMcpEditor(server);
+  return server;
+}
