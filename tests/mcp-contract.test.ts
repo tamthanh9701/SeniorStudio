@@ -31,6 +31,9 @@ describe("MCP image handoff descriptors", () => {
           },
         },
       });
+      expect(tool?.inputSchema).not.toMatchObject({
+        properties: { image: { properties: { download_url: { format: "uri" } } } },
+      });
     }
 
     await client.close();
