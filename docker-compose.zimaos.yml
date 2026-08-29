@@ -14,6 +14,7 @@ services:
       CHATGPT_POLL_INTERVAL_MS: ${CHATGPT_POLL_INTERVAL_MS:-2000}
       CHATGPT_HEADLESS: "false"
       BRIDGE_ADMIN_PORT: 8787
+      CHATGPT_CDP_URL: http://127.0.0.1:9222
       BRIDGE_BROWSER_URL: ${BRIDGE_BROWSER_URL:-https://chatgpt-bridge.example.com}
     volumes:
       - chatgpt-profile:/data/chrome-profile

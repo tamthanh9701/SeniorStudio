@@ -13,6 +13,7 @@ const schema = z.object({
   BRIDGE_ADMIN_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   BRIDGE_BROWSER_URL: z.string().url().optional(),
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: z.string().optional(),
+  CHATGPT_CDP_URL: z.string().url().default("http://127.0.0.1:9222"),
 });
 
 export type BridgeConfig = z.infer<typeof schema>;

@@ -10,7 +10,8 @@ describe("persistent browser session contracts", () => {
     expect(session.indexOf("signIn.first().isVisible")).toBeLessThan(session.indexOf("findComposer(page, 10_000)"));
   });
 
-  it("starts the persistent browser while idle for manual noVNC login", () => {
+  it("connects to persistent desktop Chromium over internal CDP while idle", () => {
+    expect(session).toContain("chromium.connectOverCDP");
     expect(worker).toContain("await this.session.start()");
   });
 });

@@ -1,36 +1,24 @@
-import { rm } from "node:fs/promises";
-import path from "node:path";
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { BridgeConfig } from "../config.js";
 import { findComposer } from "./page.js";
 
 export class LoginRequiredError extends Error { code = "LOGIN_REQUIRED"; }
 
 export class ChatGptSession {
+  private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   constructor(private readonly config: BridgeConfig) {}
 
-  private async removeStaleProfileLocks() {
-    await Promise.all(["SingletonLock", "SingletonCookie", "SingletonSocket"].map((name) =>
-      rm(path.join(this.config.CHATGPT_PROFILE_DIR, name), { force: true, recursive: true })
-    ));
-  }
 
   async start(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return this.page;
-    await this.context?.close().catch(() => undefined);
-    this.context = null;
-    this.page = null;
-    await this.removeStaleProfileLocks();
-    this.context = await chromium.launchPersistentContext(this.config.CHATGPT_PROFILE_DIR, {
-      headless: this.config.CHATGPT_HEADLESS,
-      executablePath: this.config.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      viewport: { width: 1440, height: 1000 },
-      acceptDownloads: true,
-    });
+    await this.browser?.close().catch(() => undefined);
+    this.browser = await chromium.connectOverCDP(this.config.CHATGPT_CDP_URL);
+    this.context = this.browser.contexts()[0];
+    if (!this.context) throw new Error("Desktop Chromium did not expose a browser context");
     this.page = this.context.pages()[0] ?? await this.context.newPage();
-    await this.page.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded" });
+    if (this.page.url() === "about:blank") await this.page.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded" });
     return this.page;
   }
 
@@ -44,5 +32,5 @@ export class ChatGptSession {
     return page;
   }
 
-  async close() { await this.context?.close(); this.context = null; this.page = null; }
+  async close() { await this.browser?.close(); this.browser = null; this.context = null; this.page = null; }
 }
