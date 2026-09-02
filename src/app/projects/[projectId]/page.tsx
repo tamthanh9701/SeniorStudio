@@ -1,9 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSignedUrl } from "@/lib/assets/service";
 import { createClient } from "@/supabase/server";
+import { getModelCatalog } from "@/lib/ai/models";
+import { AiJobSchema, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { getJobResultUrls } from "@/lib/ai/job-results";
+import ProjectWorkspace from "@/components/studio/ProjectWorkspace";
 
 interface ProjectPageProps {
   params: Promise<{ projectId: string }>;
@@ -18,98 +21,25 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   if (!user) redirect("/login");
 
-  const { data: project, error: projectError } = await supabase
-    .from("projects")
-    .select("id, name, created_at")
-    .eq("id", projectId)
-    .maybeSingle();
-
-  if (projectError) {
-    throw new Error(`Unable to load project: ${projectError.message}`);
-  }
+  const [{ data: project, error: projectError }, { data: projects }, { data: assets, error: assetsError }, modelCatalog, { data: jobs }] = await Promise.all([
+    supabase.from("projects").select("id, name, created_at").eq("id", projectId).maybeSingle(),
+    supabase.from("projects").select("id, name").order("created_at", { ascending: false }),
+    supabase.from("assets").select("id, name, kind, current_version_id, created_at").eq("project_id", projectId).order("created_at", { ascending: false }),
+    getModelCatalog(supabase),
+    supabase.from("ai_jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(50),
+  ]);
+  if (projectError) throw new Error(`Unable to load project: ${projectError.message}`);
   if (!project) notFound();
+  if (assetsError) throw new Error(`Unable to load project assets: ${assetsError.message}`);
 
-  const { data: assets, error: assetsError } = await supabase
-    .from("assets")
-    .select("id, name, kind, current_version_id, created_at")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: false });
+  const galleryAssets = await Promise.all((assets ?? []).map(async (asset) => {
+    if (!asset.current_version_id) return { id: asset.id, name: asset.name, signedUrl: null, versionId: null, width: null, height: null, createdAt: asset.created_at };
+    const { data: version, error: versionError } = await supabase.from("asset_versions").select("id, storage_path, width, height").eq("id", asset.current_version_id).maybeSingle();
+    if (versionError) throw new Error(`Unable to load asset version: ${versionError.message}`);
+    return { id: asset.id, name: asset.name, signedUrl: version ? await getSignedUrl(supabase, version.storage_path) : null, versionId: version?.id ?? null, width: version?.width ?? null, height: version?.height ?? null, createdAt: asset.created_at };
+  }));
+  const parsedJobs = (jobs ?? []).map((job) => AiJobSchema.safeParse(job)).filter((result) => result.success).map((result) => result.data).reverse();
+  const initialJobs: ProjectJobFeedItem[] = await Promise.all(parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })));
 
-  if (assetsError) {
-    throw new Error(`Unable to load project assets: ${assetsError.message}`);
-  }
-
-  const galleryAssets = await Promise.all(
-    (assets ?? []).map(async (asset) => {
-      if (!asset.current_version_id) {
-        return { ...asset, signedUrl: null };
-      }
-
-      const { data: version, error: versionError } = await supabase
-        .from("asset_versions")
-        .select("storage_path")
-        .eq("id", asset.current_version_id)
-        .maybeSingle();
-
-      if (versionError) {
-        throw new Error(`Unable to load asset version: ${versionError.message}`);
-      }
-
-      return {
-        ...asset,
-        signedUrl: version
-          ? await getSignedUrl(supabase, version.storage_path)
-          : null,
-      };
-    })
-  );
-
-  return (
-    <main className="min-h-screen p-8">
-      <div className="mx-auto max-w-6xl">
-        <Link href="/projects" className="text-blue-600 hover:underline">
-          Back to projects
-        </Link>
-        <div className="my-8">
-          <h1 className="text-3xl font-bold">{project.name}</h1>
-          <p className="mt-2 text-gray-500">
-            Created {new Date(project.created_at).toLocaleDateString()}
-          </p>
-        </div>
-
-
-        {galleryAssets.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-12 text-center text-gray-500">
-            No images saved yet. Generate or edit an image in ChatGPT, then use the SeniorStudio MCP save tool to store the exact result in this project.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {galleryAssets.map((asset) => (
-              <Link
-                key={asset.id}
-                href={`/projects/${projectId}/assets/${asset.id}`}
-                className="overflow-hidden rounded-lg border transition hover:border-blue-500"
-              >
-                {asset.signedUrl ? (
-                  <img
-                    src={asset.signedUrl}
-                    alt={asset.name}
-                    className="aspect-square w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex aspect-square items-center justify-center bg-gray-100 text-gray-500">
-                    No current version
-                  </div>
-                )}
-                <div className="p-4">
-                  <h2 className="font-semibold">{asset.name}</h2>
-                  <p className="mt-1 text-sm text-gray-500">{asset.kind}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
-  );
+  return <ProjectWorkspace project={project} projects={projects ?? []} userEmail={user.email ?? "Signed in"} assets={galleryAssets} models={modelCatalog} initialJobs={initialJobs} />;
 }

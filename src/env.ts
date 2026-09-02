@@ -15,7 +15,11 @@ export const envSchema = z.object({
   AUTH0_AUDIENCE: z.string().optional(),
   AUTH0_OWNER_SUB: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_ORCHESTRATOR_MODEL: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2"),
+  GOOGLE_IMAGE_MODEL: z.string().default("gemini-3.1-flash-image"),
+  AI_WORKER_SECRET: z.string().min(1),
+  SUPABASE_FUNCTION_URL: z.string().url().optional(),
   CRON_SECRET: z.string().min(1),
 });
 
@@ -43,13 +47,6 @@ export function getEnv(): Env {
   return result.data;
 }
 
-export function requireOpenAIKey(): string {
-  const env = getEnv();
-  if (!env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for direct generation");
-  }
-  return env.OPENAI_API_KEY;
-}
 
 export function requireAuth0Config() {
   const env = getEnv();

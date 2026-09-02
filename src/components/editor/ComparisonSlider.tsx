@@ -1,83 +1,17 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { ChevronsLeftRight } from "lucide-react";
+import { useRef, useState } from "react";
 
-interface ComparisonSliderProps {
-  beforeUrl: string;
-  afterUrl: string;
-  width: number;
-  height: number;
-}
-
-export default function ComparisonSlider({ beforeUrl, afterUrl, width, height }: ComparisonSliderProps) {
-  const [sliderPosition, setSliderPosition] = useState(50);
+export default function ComparisonSlider({ beforeUrl, afterUrl, width, height }: { beforeUrl: string; afterUrl: string; width: number; height: number }) {
+  const [position, setPosition] = useState(50);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!containerRef.current) return;
-    
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = (x / rect.width) * 100;
-    setSliderPosition(Math.max(0, Math.min(100, percentage)));
-  };
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative overflow-hidden cursor-ew-resize"
-      style={{ width, height }}
-      onMouseMove={handleMouseMove}
-    >
-      {/* After image (full) */}
-      <img
-        src={afterUrl}
-        alt="After"
-        className="absolute inset-0 w-full h-full object-contain"
-      />
-      
-      {/* Before image (clipped) */}
-      <div
-        className="absolute inset-0 overflow-hidden"
-        style={{ width: `${sliderPosition}%` }}
-      >
-        <img
-          src={beforeUrl}
-          alt="Before"
-          className="w-full h-full object-contain"
-          style={{ width, height }}
-        />
-      </div>
-      
-      {/* Slider line */}
-      <div
-        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg"
-        style={{ left: `${sliderPosition}%` }}
-      >
-        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center">
-          <svg
-            className="w-4 h-4 text-gray-600"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 9l4-4 4 4m0 6l-4 4-4-4"
-            />
-          </svg>
-        </div>
-      </div>
-      
-      {/* Labels */}
-      <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-        Before
-      </div>
-      <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-        After
-      </div>
-    </div>
-  );
+  const update = (clientX: number) => { const rect = containerRef.current?.getBoundingClientRect(); if (!rect) return; setPosition(Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))); };
+  return <div ref={containerRef} className="relative mx-auto w-full max-w-full touch-none overflow-hidden rounded-2xl border border-white/10 bg-black" style={{ aspectRatio: `${width} / ${height}` }} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); update(event.clientX); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) update(event.clientX); }}>
+    <img src={afterUrl} alt="Current version" className="absolute inset-0 h-full w-full object-contain" draggable={false} />
+    <div className="absolute inset-0 overflow-hidden" style={{ width: `${position}%` }}><img src={beforeUrl} alt="Parent version" className="h-full max-w-none object-contain" style={{ width: containerRef.current?.clientWidth ?? "100%" }} draggable={false} /></div>
+    <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-white shadow" style={{ left: `${position}%` }} />
+    <button type="button" role="slider" aria-label="Version comparison position" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(position)} onKeyDown={(event) => { if (event.key === "ArrowLeft") setPosition((value) => Math.max(0, value - 2)); if (event.key === "ArrowRight") setPosition((value) => Math.min(100, value + 2)); if (event.key === "Home") setPosition(0); if (event.key === "End") setPosition(100); }} className="absolute top-1/2 flex size-11 min-h-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-[#f5f7fa] text-[#111419] shadow-xl" style={{ left: `${position}%` }}><ChevronsLeftRight className="size-5" /></button>
+    <span className="absolute left-3 top-3 rounded-lg bg-black/65 px-2 py-1 text-xs">Parent</span><span className="absolute right-3 top-3 rounded-lg bg-black/65 px-2 py-1 text-xs">Current</span>
+  </div>;
 }

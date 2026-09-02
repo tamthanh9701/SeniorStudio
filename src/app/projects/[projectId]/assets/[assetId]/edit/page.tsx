@@ -1,123 +1,42 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { LoaderCircle, Paintbrush } from "lucide-react";
 import MaskEditor from "@/components/editor/MaskEditor";
-import { getSignedUrl } from "@/lib/assets/service";
+import StudioShell from "@/components/studio/StudioShell";
+import ProjectSidebar from "@/components/studio/ProjectSidebar";
+import { INPAINT_MODELS } from "@/lib/ai/models";
+import { useAiJob } from "@/lib/ai/use-ai-job";
+import { JOB_STATUS_LABELS } from "@/lib/ai/presentation";
+import type { AiJob, SupportedModelId, SupportedQuality } from "@/db/ai-jobs";
 
 export default function EditAssetPage() {
-  const params = useParams();
+  const params = useParams<{ projectId: string; assetId: string }>();
   const router = useRouter();
-  const [asset, setAsset] = useState<any>(null);
-  const [version, setVersion] = useState<any>(null);
+  const [asset, setAsset] = useState<{ id: string; name?: string } | null>(null);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [email, setEmail] = useState("Signed in");
+  const [version, setVersion] = useState<{ id: string; width: number; height: number } | null>(null);
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [maskPng, setMaskPng] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
+  const models = INPAINT_MODELS.filter((model) => model.operations.includes("inpaint"));
+  const [modelId, setModelId] = useState<SupportedModelId>(models[0].id);
+  const selected = models.find((model) => model.id === modelId) ?? models[0];
+  const [quality, setQuality] = useState<SupportedQuality>(selected.qualities[0]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    async function loadAsset() {
-      try {
-        const response = await fetch(`/api/assets/${params.assetId}`);
-        const data = await response.json();
-        setAsset(data.asset);
-        setVersion(data.version);
-        setSignedUrl(data.signed_url);
-      } catch (error) {
-        console.error("Failed to load asset:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadAsset();
-  }, [params.assetId]);
-
-  const handleSubmit = async () => {
-    if (!maskPng || !prompt || !version) return;
-
-    setSubmitting(true);
-    try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assetId: params.assetId,
-          parentVersionId: version.id,
-          prompt,
-          maskPng,
-        }),
-      });
-
-      if (response.ok) {
-        router.push(`/projects/${params.projectId}/assets/${params.assetId}`);
-      }
-    } catch (error) {
-      console.error("Failed to edit image:", error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="p-8">Loading...</div>;
-  }
-
-  if (!asset || !version || !signedUrl) {
-    return <div className="p-8">Asset not found</div>;
-  }
-
-  return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-6">
-          <button
-            onClick={() => router.back()}
-            className="text-blue-600 hover:underline"
-          >
-            Back to Asset
-          </button>
-        </div>
-
-        <h1 className="text-2xl font-bold mb-6">Edit Image</h1>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Mask Editor</h2>
-            <MaskEditor
-              imageUrl={signedUrl}
-              width={version.width}
-              height={version.height}
-              onMaskChange={setMaskPng}
-            />
-          </div>
-
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Edit Prompt</h2>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              className="w-full h-32 p-3 border rounded-lg mb-4"
-              placeholder="Describe the edit you want to make..."
-            />
-
-            <button
-              onClick={handleSubmit}
-              disabled={!maskPng || !prompt || submitting}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {submitting ? "Generating..." : "Apply Edit"}
-            </button>
-
-            {!maskPng && (
-              <p className="text-sm text-gray-500 mt-2">
-                Paint a mask on the image to indicate the edit area
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  const [error, setError] = useState<string | null>(null);
+  const { job, setJob } = useAiJob(null);
+  useEffect(() => { setQuality(selected.qualities[0]); }, [selected]);
+  useEffect(() => { Promise.all([fetch(`/api/assets/${params.assetId}`).then((response) => response.json()), fetch("/api/auth/workspace").then((response) => response.json())]).then(([data, workspace]) => { setAsset(data.asset); setVersion(data.version); setSignedUrl(data.signed_url); setProjects(workspace.projects ?? []); setEmail(workspace.user?.email ?? "Signed in"); }).catch(() => setError("Failed to load asset")).finally(() => setLoading(false)); }, [params.assetId]);
+  useEffect(() => { if (job?.status === "succeeded" && job.version_id) router.push(`/projects/${params.projectId}/assets/${params.assetId}`); }, [job, params.assetId, params.projectId, router]);
+  const submit = async () => { if (!maskPng || !version || !prompt.trim()) return; setSubmitting(true); setError(null); const maskResponse = await fetch(`/api/assets/${params.assetId}/masks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parentVersionId: version.id, maskPng }) }); const maskBody = await maskResponse.json(); if (!maskResponse.ok) { setError(`${maskBody.error?.code}: ${maskBody.error?.message ?? "Mask upload failed"}`); setSubmitting(false); return; } const jobResponse = await fetch(`/api/assets/${params.assetId}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "inpaint", model: modelId, parentVersionId: version.id, maskId: maskBody.maskId, prompt, quality }) }); const jobBody = await jobResponse.json(); if (jobResponse.ok) setJob(jobBody.job as AiJob); else setError(`${jobBody.error?.code}: ${jobBody.error?.message ?? "Inpaint enqueue failed"}`); setSubmitting(false); };
+  if (loading) return <div className="flex min-h-dvh items-center justify-center"><LoaderCircle className="size-6 animate-spin text-[#7c5cff]" /></div>;
+  if (!asset || !version || !signedUrl) return <div className="flex min-h-dvh items-center justify-center text-[#98a2b3]">Asset not found</div>;
+  const sidebar = <ProjectSidebar projects={projects} activeProjectId={params.projectId} userEmail={email} />;
+  const inspector = <div className="p-4 pt-16 xl:pt-4"><div className="flex items-center gap-2"><Paintbrush className="size-4 text-[#7c5cff]" /><h1 className="font-semibold">Inpaint</h1></div><p className="mt-2 text-xs leading-5 text-[#98a2b3]">Transparent mask regions are edited against the exact current parent version.</p><div className="mt-6 space-y-4"><label><span className="studio-label">Model</span><select className="studio-control" value={modelId} onChange={(event) => setModelId(event.target.value as SupportedModelId)}>{models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label><label><span className="studio-label">Quality</span><select className="studio-control" value={quality} onChange={(event) => setQuality(event.target.value as SupportedQuality)}>{selected.qualities.map((value) => <option key={value}>{value}</option>)}</select></label><label><span className="studio-label">Edit prompt</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} className="studio-control min-h-32 py-3" placeholder="Describe what should change inside the mask" /></label>{job && <div aria-live="polite" className="rounded-xl border border-white/10 bg-white/[0.025] p-3"><p className="text-sm font-medium">{JOB_STATUS_LABELS[job.status]}</p><p className="mt-1 text-xs text-[#667085]">{job.provider} · {job.model}</p>{job.error_code && <p role="alert" className="mt-2 text-sm text-[#ff9b9b]">{job.error_code}: {job.error_message}</p>}</div>}{error && <p role="alert" className="text-sm text-[#ff9b9b]">{error}</p>}</div></div>;
+  const center = <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1"><MaskEditor imageUrl={signedUrl} width={version.width} height={version.height} onMaskChange={setMaskPng} /></div><div className="border-t border-white/10 bg-[#111419] p-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] xl:pb-3"><button onClick={submit} disabled={!maskPng || !prompt.trim() || submitting || Boolean(job && !["failed", "canceled"].includes(job.status))} className="studio-button-primary w-full">{submitting ? <><LoaderCircle className="size-4 animate-spin" />Enqueuing…</> : "Apply inpaint"}</button></div></div>;
+  return <StudioShell projects={projects} activeProjectId={params.projectId} userEmail={email} leftSidebar={sidebar} center={center} inspector={inspector} />;
 }
