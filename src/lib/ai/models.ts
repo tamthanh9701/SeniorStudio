@@ -46,10 +46,14 @@ export async function getModelCatalog(catalogClient?: SupabaseClient): Promise<M
   const apiKey = await getProviderApiKey("google", { user: catalogClient });
   const catalog = [OPENAI_MODEL];
   if (!apiKey) return catalog;
-  const pager = await new GoogleGenAI({ apiKey }).models.list({ config: { pageSize: 100, queryBase: true } });
-  for await (const model of pager) {
-    const entry = googleCatalogEntry(model);
-    if (entry) catalog.push(entry);
+  try {
+    const pager = await new GoogleGenAI({ apiKey }).models.list({ config: { pageSize: 100, queryBase: true } });
+    for await (const model of pager) {
+      const entry = googleCatalogEntry(model);
+      if (entry) catalog.push(entry);
+    }
+  } catch (error) {
+    console.warn("google_model_catalog_unavailable", error instanceof Error ? error.message : error);
   }
   return catalog;
 }
