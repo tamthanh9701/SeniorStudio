@@ -31,7 +31,7 @@ export const openAiProvider: ImageProvider = {
     if (job.operation === "text_to_image") {
       response = await openai.images.generate({
         model, prompt: job.input.prompt, n: job.input.count, size: job.input.size,
-        quality: job.input.quality, response_format: "b64_json",
+        quality: job.input.quality,
       });
     } else {
       const [sourceBytes, canonicalMask] = await Promise.all([downloadParent(context), downloadMask(context)]);
@@ -47,7 +47,6 @@ export const openAiProvider: ImageProvider = {
         model, prompt: job.input.prompt, n: 1, quality: job.input.quality,
         image: await toFile(sourceBytes, "source.png", { type: "image/png" }),
         mask: await toFile(rgbaMask, "mask.png", { type: "image/png" }),
-        response_format: "b64_json",
       });
     }
     const responseData = response.data ?? [];

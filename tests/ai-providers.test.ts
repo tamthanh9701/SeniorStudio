@@ -41,7 +41,8 @@ describe("provider adapters", () => {
       expect(Buffer.from(image.bytes).toString()).toBe("png-bytes");
       expect(result.metadata.revised_prompt).toBe("revised");
     }
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2", response_format: "b64_json" }));
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2", quality: "auto" }));
+    expect(generate.mock.calls[0][0]).not.toHaveProperty("response_format");
   });
 
   it("rejects polling for the synchronous OpenAI adapter", async () => {
