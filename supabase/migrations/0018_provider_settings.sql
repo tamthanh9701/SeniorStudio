@@ -22,7 +22,7 @@ returns void language plpgsql security definer set search_path = public as $$
 declare v_workspace uuid;
 begin
   if auth.role() <> 'authenticated' then raise exception 'NOT_FOUND' using errcode = 'P0002'; end if;
-  select workspace_id into v_workspace from public.current_workspace_ids() limit 1;
+  select workspace_id into v_workspace from public.workspace_members where supabase_user_id = auth.uid() limit 1;
   if v_workspace is null then raise exception 'NOT_FOUND' using errcode = 'P0002'; end if;
   if p_provider not in ('openai', 'google') or char_length(btrim(coalesce(p_api_key, ''))) not between 1 and 512 then
     raise exception 'INVALID_REQUEST' using errcode = '22023';
