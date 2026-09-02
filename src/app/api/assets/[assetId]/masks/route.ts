@@ -15,8 +15,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
   if (bytes.byteLength === 0 || bytes.byteLength > 50 * 1024 * 1024) return NextResponse.json({ error: { code: "INVALID_REQUEST" } }, { status: 400 });
   const metadata = await sharp(bytes, { failOn: "error" }).metadata().catch(() => null);
   if (metadata?.format !== "png" || !metadata.width || !metadata.height || metadata.channels !== 4) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Mask must be RGBA PNG" } }, { status: 400 });
-  const { data: version } = await supabase.from("asset_versions").select("id, asset_id, width, height, assets!inner(project_id, projects!inner(workspace_id))").eq("id", parsed.data.parentVersionId).eq("asset_id", assetId).single();
-  if (!version) return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
+  const { data: version, error: versionError } = await supabase.from("asset_versions").select("id, asset_id, width, height, assets!asset_versions_asset_id_fkey(project_id, projects!inner(workspace_id))").eq("id", parsed.data.parentVersionId).eq("asset_id", assetId).single();
+  if (versionError || !version) return NextResponse.json({ error: { code: versionError?.code === "PGRST301" ? "UNAUTHORIZED" : "NOT_FOUND", message: versionError?.message } }, { status: versionError?.code === "PGRST301" ? 401 : 404 });
   if (version.width !== metadata.width || version.height !== metadata.height) return NextResponse.json({ error: { code: "VERSION_CONFLICT" } }, { status: 409 });
   const nested = version.assets as unknown as { project_id: string; projects: { workspace_id: string } };
   const maskId = crypto.randomUUID();
