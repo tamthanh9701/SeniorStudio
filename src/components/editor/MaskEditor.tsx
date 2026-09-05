@@ -1,171 +1,91 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
-import { Stage, Layer, Image as KonvaImage, Rect, Line, Transformer } from "react-konva";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Eraser, Paintbrush, Redo2, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Stage, Layer, Image as KonvaImage, Line, Circle } from "react-konva";
 import type Konva from "konva";
 
-interface MaskEditorProps {
-  imageUrl: string;
-  width: number;
-  height: number;
-  onMaskChange: (maskPng: string | null) => void;
-}
+type MaskLine = { points: number[]; tool: "brush" | "eraser"; width: number };
 
-export default function MaskEditor({ imageUrl, width, height, onMaskChange }: MaskEditorProps) {
-  const stageRef = useRef<Konva.Stage>(null);
-  const layerRef = useRef<Konva.Layer>(null);
+export default function MaskEditor({ imageUrl, width, height, onMaskChange }: { imageUrl: string; width: number; height: number; onMaskChange: (maskPng: string | null) => void }) {
+  const stageAreaRef = useRef<HTMLDivElement>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [brushSize, setBrushSize] = useState(20);
+  const [brushSize, setBrushSize] = useState(40);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [lines, setLines] = useState<Array<{ points: number[]; tool: string }>>([]);
+  const [lines, setLines] = useState<MaskLine[]>([]);
+  const [redo, setRedo] = useState<MaskLine[]>([]);
   const [tool, setTool] = useState<"brush" | "eraser">("brush");
+  const [inverted, setInverted] = useState(false);
+  const [display, setDisplay] = useState({ width: Math.min(width, 760), height: Math.min(height, 760) });
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
+  useEffect(() => { const loaded = new window.Image(); loaded.crossOrigin = "anonymous"; loaded.onload = () => setImage(loaded); loaded.src = imageUrl; }, [imageUrl]);
   useEffect(() => {
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => setImage(img);
-    img.src = imageUrl;
-  }, [imageUrl]);
-
-  const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (tool !== "brush" && tool !== "eraser") return;
-    setIsDrawing(true);
-    const pos = e.target.getStage()?.getPointerPosition();
-    if (pos) {
-      setLines([...lines, { points: [pos.x, pos.y], tool }]);
-    }
-  }, [tool, lines]);
-
-  const handleMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (!isDrawing) return;
-    const pos = e.target.getStage()?.getPointerPosition();
-    if (pos) {
-      const lastLine = lines[lines.length - 1];
-      if (lastLine) {
-        lastLine.points = lastLine.points.concat([pos.x, pos.y]);
-        setLines([...lines]);
-      }
-    }
-  }, [isDrawing, lines]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDrawing(false);
-  }, []);
-
-  const clearMask = useCallback(() => {
-    setLines([]);
-    onMaskChange(null);
-  }, [onMaskChange]);
-
-  const invertMask = useCallback(() => {
-    // TODO: Implement mask inversion
-  }, []);
-
-  const exportMask = useCallback(() => {
-    if (!stageRef.current) return;
-
-    // Create a temporary canvas for mask export
-    const maskCanvas = document.createElement("canvas");
-    maskCanvas.width = width;
-    maskCanvas.height = height;
-    const ctx = maskCanvas.getContext("2d");
-    if (!ctx) return;
-
-    // Draw mask lines
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, width, height);
-
-    lines.forEach((line) => {
-      ctx.strokeStyle = line.tool === "eraser" ? "black" : "white";
-      ctx.lineWidth = brushSize;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(line.points[0], line.points[1]);
-      for (let i = 2; i < line.points.length; i += 2) {
-        ctx.lineTo(line.points[i], line.points[i + 1]);
-      }
-      ctx.stroke();
+    const element = stageAreaRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const scale = Math.min(1, entry.contentRect.width / width, entry.contentRect.height / height);
+      setDisplay({ width: Math.max(1, width * scale), height: Math.max(1, height * scale) });
     });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [height, width]);
 
-    // Convert to base64 PNG
-    const maskPng = maskCanvas.toDataURL("image/png").split(",")[1];
-    onMaskChange(maskPng);
-  }, [lines, width, height, brushSize, onMaskChange]);
+  const scale = display.width / width;
+  const begin = useCallback((event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    const position = event.target.getStage()?.getPointerPosition();
+    if (!position) return;
+    setIsDrawing(true);
+    setRedo([]);
+    setLines((current) => [...current, { points: [position.x / scale, position.y / scale], tool, width: brushSize }]);
+  }, [brushSize, scale, tool]);
+  const draw = useCallback((event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    const position = event.target.getStage()?.getPointerPosition();
+    if (!position) return;
+    setCursor({ x: position.x / scale, y: position.y / scale });
+    if (!isDrawing) return;
+    setLines((current) => current.map((line, index) => index === current.length - 1 ? { ...line, points: [...line.points, position.x / scale, position.y / scale] } : line));
+  }, [isDrawing, scale]);
+  const clear = () => { setLines([]); setRedo([]); setInverted(false); onMaskChange(null); };
+  const exportMask = useCallback(() => {
+    if (!lines.length) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = inverted ? "rgba(255,255,255,0)" : "rgba(255,255,255,255)";
+    context.fillRect(0, 0, width, height);
+    for (const line of lines) {
+      context.globalCompositeOperation = (line.tool === "brush" ? !inverted : inverted) ? "destination-out" : "source-over";
+      context.strokeStyle = "rgba(255,255,255,255)";
+      context.lineWidth = line.width;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.beginPath();
+      context.moveTo(line.points[0], line.points[1]);
+      for (let index = 2; index < line.points.length; index += 2) context.lineTo(line.points[index], line.points[index + 1]);
+      context.stroke();
+    }
+    context.globalCompositeOperation = "source-over";
+    onMaskChange(canvas.toDataURL("image/png"));
+  }, [height, inverted, lines, onMaskChange, width]);
 
-  return (
-    <div className="border rounded-lg overflow-hidden">
-      <div className="p-2 bg-gray-100 border-b flex gap-2 items-center">
-        <select
-          value={tool}
-          onChange={(e) => setTool(e.target.value as "brush" | "eraser")}
-          className="px-2 py-1 border rounded"
-        >
-          <option value="brush">Brush</option>
-          <option value="eraser">Eraser</option>
-        </select>
-        
-        <input
-          type="range"
-          min="5"
-          max="100"
-          value={brushSize}
-          onChange={(e) => setBrushSize(Number(e.target.value))}
-          className="flex-1"
-        />
-        <span className="text-sm">{brushSize}px</span>
-        
-        <button
-          onClick={clearMask}
-          className="px-2 py-1 bg-red-500 text-white rounded text-sm"
-        >
-          Clear
-        </button>
-        
-        <button
-          onClick={invertMask}
-          className="px-2 py-1 bg-gray-500 text-white rounded text-sm"
-        >
-          Invert
-        </button>
-        
-        <button
-          onClick={exportMask}
-          className="px-2 py-1 bg-blue-500 text-white rounded text-sm"
-        >
-          Apply Mask
-        </button>
-      </div>
-      
-      <Stage
-        ref={stageRef}
-        width={width}
-        height={height}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-      >
-        <Layer ref={layerRef}>
-          {image && (
-            <KonvaImage image={image} width={width} height={height} />
-          )}
-          
-          {lines.map((line, i) => (
-            <Line
-              key={i}
-              points={line.points}
-              stroke={line.tool === "eraser" ? "rgba(255,0,0,0.5)" : "rgba(255,255,255,0.7)"}
-              strokeWidth={brushSize}
-              tension={0.5}
-              lineCap="round"
-              lineJoin="round"
-              globalCompositeOperation={
-                line.tool === "eraser" ? "destination-out" : "source-over"
-              }
-            />
-          ))}
-        </Layer>
+  return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0d10]">
+    <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-[#111419] p-3">
+      <div className="flex rounded-xl bg-white/[0.045] p-1"><button onClick={() => setTool("brush")} className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs ${tool === "brush" ? "bg-[#7c5cff] text-white" : "text-[#98a2b3]"}`}><Paintbrush className="size-3.5" />Brush</button><button onClick={() => setTool("eraser")} className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs ${tool === "eraser" ? "bg-[#7c5cff] text-white" : "text-[#98a2b3]"}`}><Eraser className="size-3.5" />Restore</button></div>
+      <button className="studio-icon-button size-9 min-h-9" disabled={!lines.length} onClick={() => setLines((current) => { const last = current.at(-1); if (last) setRedo((items) => [...items, last]); return current.slice(0, -1); })} aria-label="Undo stroke"><Undo2 className="size-4" /></button>
+      <button className="studio-icon-button size-9 min-h-9" disabled={!redo.length} onClick={() => setRedo((current) => { const last = current.at(-1); if (last) setLines((items) => [...items, last]); return current.slice(0, -1); })} aria-label="Redo stroke"><Redo2 className="size-4" /></button>
+      <label className="ml-auto flex items-center gap-2 text-xs text-[#98a2b3]">Brush <input type="range" min="5" max="200" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} /><span className="w-10 text-right">{brushSize}px</span></label>
+      <button onClick={() => setInverted((value) => !value)} className="studio-button-secondary min-h-9 px-3 py-1 text-xs"><RotateCcw className="size-3.5" />{inverted ? "Normal" : "Invert"}</button>
+      <button onClick={clear} disabled={!lines.length} className="studio-icon-button size-9 min-h-9" aria-label="Clear mask"><Trash2 className="size-4" /></button>
+    </div>
+    <div ref={stageAreaRef} className="checker-stage flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+      <Stage width={display.width} height={display.height} scaleX={scale} scaleY={scale} onMouseDown={begin} onMouseMove={draw} onMouseUp={() => setIsDrawing(false)} onMouseLeave={() => { setIsDrawing(false); setCursor(null); }} onTouchStart={begin} onTouchMove={draw} onTouchEnd={() => setIsDrawing(false)}>
+        <Layer>{image && <KonvaImage image={image} width={width} height={height} />}{lines.map((line, index) => <Line key={index} points={line.points} stroke={line.tool === "brush" ? "rgba(124,92,255,.7)" : "rgba(239,98,98,.65)"} strokeWidth={line.width} lineCap="round" lineJoin="round" />)}{cursor && <Circle x={cursor.x} y={cursor.y} radius={brushSize / 2} stroke="white" strokeWidth={2 / scale} listening={false} />}</Layer>
       </Stage>
     </div>
-  );
+    <div className="flex items-center justify-between border-t border-white/10 bg-[#111419] p-3"><span className={`text-xs ${lines.length ? "text-[#f2b84b]" : "text-[#667085]"}`}>{lines.length ? `Unsaved mask · ${lines.length} stroke${lines.length === 1 ? "" : "s"}` : "Paint at least one edit region"}</span><button onClick={exportMask} disabled={!lines.length} className="studio-button-primary">Apply mask</button></div>
+  </div>;
 }
