@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { AiJobSchema, TextToImageEnqueueSchema, providerForModel, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { compileStyledPrompt } from "@/lib/style/service";
+import { styleProfilesEnabled } from "@/lib/style/flag";
 import { assertModelSupports } from "@/lib/ai/models";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getEnv } from "@/env";
@@ -41,17 +43,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (!model.sizes.includes(parsed.data.size as never) || !model.qualities.includes(parsed.data.quality as never)) throw new Error("INVALID_MODEL");
     const { data: member } = await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single();
     if (!member) throw new Error("NOT_FOUND");
+    let prompt = parsed.data.prompt;
+    let styleId: string | null = null;
+    if (parsed.data.styleId) {
+      if (!styleProfilesEnabled()) throw new Error("INVALID_REQUEST");
+      styleId = parsed.data.styleId;
+      prompt = await compileStyledPrompt({ styleId: parsed.data.styleId, originalPrompt: parsed.data.prompt, client: supabase });
+    }
     const { data: job, error } = await supabase.rpc("enqueue_ai_job", {
       p_workspace_id: member.workspace_id, p_project_id: projectId, p_requested_by: user.id,
       p_operation: parsed.data.operation, p_provider: providerForModel(parsed.data.model), p_model: parsed.data.model,
-      p_prompt: parsed.data.prompt, p_count: parsed.data.count, p_size: parsed.data.size, p_quality: parsed.data.quality,
+      p_prompt: prompt, p_count: parsed.data.count, p_size: parsed.data.size, p_quality: parsed.data.quality,
       p_asset_id: null, p_parent_version_id: null, p_mask_storage_path: null,
+      p_style_id: styleId, p_original_prompt: styleId ? parsed.data.prompt : null,
     });
     if (error) throw error;
     return NextResponse.json({ job }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const code = ["NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
+    const code = ["NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "STYLE_NOT_FOUND", "STYLE_NOT_ACTIVE"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
     return NextResponse.json({ error: { code, message } }, { status: statusForError(message) });
   }
 }

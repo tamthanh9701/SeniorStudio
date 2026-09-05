@@ -8,10 +8,6 @@ export function useAiJob(initialJob: AiJob | null) {
   const [job, setJob] = useState<AiJob | null>(initialJob);
   const [resultUrls, setResultUrls] = useState<string[]>([]);
 
-  useEffect(() => {
-    setJob(initialJob);
-    setResultUrls([]);
-  }, [initialJob]);
 
   useEffect(() => {
     if (!job || isTerminalStatus(job.status)) return;
@@ -52,7 +48,7 @@ export function useAiJob(initialJob: AiJob | null) {
       if (pollTimer) clearInterval(pollTimer);
       void supabase.removeChannel(channel);
     };
-  }, [job?.id, job?.status]);
+  }, [job]);
 
   return { job, setJob, resultUrls };
 }

@@ -26,6 +26,8 @@ export const AiJobInputSchema = z.object({
   size: SupportedSizeSchema,
   quality: SupportedQualitySchema,
   mask_storage_path: z.string().nullable().optional(),
+  style_id: z.string().uuid().nullable().optional(),
+  original_prompt: z.string().nullable().optional(),
 });
 
 export const AiJobResultSchema = z.object({ asset_id: z.string().uuid(), version_id: z.string().uuid() });
@@ -49,6 +51,7 @@ export type ProjectJobFeedItem = z.infer<typeof ProjectJobFeedItemSchema>;
 export const TextToImageEnqueueSchema = z.object({
   operation: z.literal("text_to_image"), model: SupportedModelIdSchema, prompt: z.string().trim().min(1).max(8000),
   count: GenerationCountSchema, size: SupportedSizeSchema, quality: SupportedQualitySchema,
+  styleId: z.string().uuid().optional(),
 });
 export const InpaintEnqueueSchema = z.object({
   operation: z.literal("inpaint"), model: SupportedModelIdSchema, parentVersionId: z.string().uuid(), maskId: z.string().uuid(),

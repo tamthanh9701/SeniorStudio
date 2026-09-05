@@ -15,11 +15,6 @@ export function useProjectJobs(projectId: string, initialItems: ProjectJobFeedIt
   const terminalRefreshes = useRef(new Set<string>());
   const previousStatuses = useRef(new Map(initialItems.map((item) => [item.job.id, item.job.status])));
 
-  useEffect(() => {
-    setItems(initialItems);
-    previousStatuses.current = new Map(initialItems.map((item) => [item.job.id, item.job.status]));
-    terminalRefreshes.current.clear();
-  }, [initialItems, projectId]);
 
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/projects/${projectId}/ai-jobs?limit=50`, { cache: "no-store" });

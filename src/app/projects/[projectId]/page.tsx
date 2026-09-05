@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import { styleProfilesEnabled } from "@/lib/style/flag";
+
 import { notFound, redirect } from "next/navigation";
 import { getSignedUrl } from "@/lib/assets/service";
 import { createClient } from "@/supabase/server";
@@ -41,5 +43,5 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const parsedJobs = (jobs ?? []).map((job) => AiJobSchema.safeParse(job)).filter((result) => result.success).map((result) => result.data).reverse();
   const initialJobs: ProjectJobFeedItem[] = await Promise.all(parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })));
 
-  return <ProjectWorkspace project={project} projects={projects ?? []} userEmail={user.email ?? "Signed in"} assets={galleryAssets} models={modelCatalog} initialJobs={initialJobs} />;
+  return <ProjectWorkspace key={project.id} project={project} projects={projects ?? []} userEmail={user.email ?? "Signed in"} assets={galleryAssets} models={modelCatalog} initialJobs={initialJobs} styleProfilesEnabled={styleProfilesEnabled()} />;
 }

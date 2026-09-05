@@ -21,6 +21,9 @@ export const envSchema = z.object({
   AI_WORKER_SECRET: z.string().min(1),
   SUPABASE_FUNCTION_URL: z.string().url().optional(),
   CRON_SECRET: z.string().min(1),
+  STYLE_ANALYSIS_PROVIDER: z.enum(["openai", "google"]).optional(),
+  STYLE_ANALYSIS_MODEL: z.string().min(1).optional(),
+  STYLE_PROFILES_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
 });
 
 export type Env = z.infer<typeof envSchema>;

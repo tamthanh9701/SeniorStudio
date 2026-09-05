@@ -15,8 +15,8 @@ test.describe("SeniorStudio", () => {
   test("has accessible disabled login controls and visible focus", async ({ page }) => {
     await page.goto("/login");
     const emailInput = page.getByLabel("Email address");
-    const submitButton = page.getByRole("button", { name: /continue with email/i });
-    await expect(emailInput).toBeVisible();
+    const submitButton = page.getByRole("button", { name: /sign in/i });
+    await expect(page.getByLabel("Password")).toBeVisible();
     await expect(submitButton).toBeDisabled();
     await emailInput.focus();
     await expect(emailInput).toBeFocused();

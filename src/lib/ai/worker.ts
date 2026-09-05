@@ -41,7 +41,9 @@ async function persist(client: SupabaseClient, job: AiJob, workerId: string, sub
   const results = [];
   for (const image of submission.images) {
     const bytes = await providerBytes(image);
+    const sourcePrompt = (job.input.original_prompt ?? job.input.prompt).trim().slice(0, 80);
     const ingested = await ingestImageBytes({
+      name: sourcePrompt || undefined,
       client, workspaceId: job.workspace_id, projectId: job.project_id,
       assetId: job.operation === "inpaint" ? job.asset_id ?? undefined : undefined,
       parentVersionId: job.operation === "inpaint" ? job.parent_version_id ?? undefined : undefined,

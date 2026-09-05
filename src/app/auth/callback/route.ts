@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/supabase/server";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -6,25 +7,19 @@ export async function GET(request: Request) {
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
 
-  console.log("auth_callback", {
-    hasCode: Boolean(code),
-    error,
-    errorDescription,
-  });
-
   if (error) {
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(errorDescription || error)}`, url.origin)
-    );
+    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(errorDescription || error)}`, url.origin));
   }
-
   if (!code) {
     return NextResponse.redirect(new URL("/login?error=no_code", url.origin));
   }
 
-  // Redirect to /projects with the code in URL
-  // The exchange will happen on the client side
-  return NextResponse.redirect(
-    new URL(`/auth/exchange?code=${encodeURIComponent(code)}`, url.origin)
-  );
+  const supabase = await createClient();
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  if (exchangeError) {
+    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(exchangeError.message)}`, url.origin));
+  }
+
+  // After cutover the only email link is password recovery → send the user to set a new password.
+  return NextResponse.redirect(new URL("/reset-password", url.origin));
 }

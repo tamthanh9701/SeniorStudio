@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ImageIcon, Menu, Paintbrush, Settings2, Sparkles, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { ProjectJobFeedItem } from "@/db/ai-jobs";
@@ -17,9 +17,8 @@ export type StudioShellProps = {
 };
 
 export default function StudioShell({ projects, activeProjectId, leftSidebar, center, inspector }: StudioShellProps) {
-  const pathname = usePathname();
+  const router = useRouter();
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  useEffect(() => setInspectorOpen(false), [pathname]);
   useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.key === "Escape") setInspectorOpen(false); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   const activeProject = projects.find((project) => project.id === activeProjectId);
 
@@ -32,7 +31,7 @@ export default function StudioShell({ projects, activeProjectId, leftSidebar, ce
         </Link>
         <label className="min-w-0 flex-1">
           <span className="sr-only">Active project</span>
-          <select className="studio-control truncate" value={activeProjectId ?? ""} onChange={(event) => { if (event.target.value) window.location.assign(`/projects/${event.target.value}`); }}>
+          <select className="studio-control truncate" value={activeProjectId ?? ""} onChange={(event) => { if (event.target.value) { setInspectorOpen(false); router.push(`/projects/${event.target.value}`); } }}>
             {!activeProjectId && <option value="">Projects</option>}
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
