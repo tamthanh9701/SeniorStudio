@@ -26,7 +26,7 @@ export const BatchItemSchema = z.object({
   asset_id: z.string().uuid(),
   parent_version_id: z.string().uuid().nullable(),
   status: BatchItemStatusSchema,
-  generation_run_id: z.string().uuid().nullable(),
+  ai_job_id: z.string().uuid().nullable(),
   error_code: z.string().nullable(),
   created_at: z.string().datetime(),
 });

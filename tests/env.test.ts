@@ -11,6 +11,8 @@ describe("Environment Validation", () => {
     AUTH0_ISSUER_BASE_URL: "https://example.auth0.com/",
     AUTH0_AUDIENCE: "https://api.example.com",
     OPENAI_API_KEY: "sk-test",
+    GEMINI_API_KEY: "gemini-test-key",
+    AI_WORKER_SECRET: "worker-secret",
     CRON_SECRET: "cron-secret",
   };
 

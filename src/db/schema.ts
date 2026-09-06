@@ -5,7 +5,7 @@ export const WORKSPACE_MEMBERS_TABLE = "workspace_members";
 export const PROJECTS_TABLE = "projects";
 export const ASSETS_TABLE = "assets";
 export const ASSET_VERSIONS_TABLE = "asset_versions";
-export const GENERATION_RUNS_TABLE = "generation_runs";
+export const AI_JOBS_TABLE = "ai_jobs";
 export const SERVICE_HEARTBEATS_TABLE = "service_heartbeats";
 export const STORAGE_BUCKET = "assets";
 
@@ -15,14 +15,11 @@ export type AssetKind = z.infer<typeof AssetKindSchema>;
 export const VersionSourceSchema = z.enum(["chatgpt", "web_openai", "upload", "flattened"]);
 export type VersionSource = z.infer<typeof VersionSourceSchema>;
 
-export const RunOriginSchema = z.enum(["chatgpt_mcp", "web"]);
-export type RunOrigin = z.infer<typeof RunOriginSchema>;
+export const AiOperationSchema = z.enum(["text_to_image", "inpaint"]);
+export type AiOperation = z.infer<typeof AiOperationSchema>;
 
-export const RunOperationSchema = z.enum(["generate", "edit"]);
-export type RunOperation = z.infer<typeof RunOperationSchema>;
-
-export const RunStatusSchema = z.enum(["pending", "succeeded", "failed"]);
-export type RunStatus = z.infer<typeof RunStatusSchema>;
+export const AiJobStatusSchema = z.enum(["queued", "submitting", "processing", "persisting", "succeeded", "failed", "canceled"]);
+export type AiJobStatus = z.infer<typeof AiJobStatusSchema>;
 
 export const WorkspaceSchema = z.object({
   id: z.string().uuid(),
@@ -78,22 +75,27 @@ export const AssetVersionSchema = z.object({
 });
 export type AssetVersion = z.infer<typeof AssetVersionSchema>;
 
-export const GenerationRunSchema = z.object({
+export const AiJobSchema = z.object({
   id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   project_id: z.string().uuid(),
+  requested_by: z.string().uuid(),
   asset_id: z.string().uuid().nullable(),
   parent_version_id: z.string().uuid().nullable(),
-  origin: RunOriginSchema,
-  operation: RunOperationSchema,
-  status: RunStatusSchema,
-  openai_response_id: z.string().nullable(),
-  request: z.record(z.string(), z.unknown()),
+  version_id: z.string().uuid().nullable(),
+  operation: AiOperationSchema,
+  provider: z.enum(["openai", "google"]),
+  model: z.string(),
+  status: AiJobStatusSchema,
+  input: z.record(z.string(), z.unknown()),
+  output: z.record(z.string(), z.unknown()),
   error_code: z.string().nullable(),
+  error_message: z.string().nullable(),
   created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
   completed_at: z.string().datetime().nullable(),
 });
-export type GenerationRun = z.infer<typeof GenerationRunSchema>;
+export type AiJob = z.infer<typeof AiJobSchema>;
 
 export const ServiceHeartbeatSchema = z.object({
   service: z.string(),

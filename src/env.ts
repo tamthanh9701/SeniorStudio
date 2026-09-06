@@ -15,8 +15,15 @@ export const envSchema = z.object({
   AUTH0_AUDIENCE: z.string().optional(),
   AUTH0_OWNER_SUB: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_ORCHESTRATOR_MODEL: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2"),
+  GOOGLE_IMAGE_MODEL: z.string().default("gemini-3.1-flash-image"),
+  AI_WORKER_SECRET: z.string().min(1),
+  SUPABASE_FUNCTION_URL: z.string().url().optional(),
   CRON_SECRET: z.string().min(1),
+  STYLE_ANALYSIS_PROVIDER: z.enum(["openai", "google"]).optional(),
+  STYLE_ANALYSIS_MODEL: z.string().min(1).optional(),
+  STYLE_PROFILES_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -43,13 +50,6 @@ export function getEnv(): Env {
   return result.data;
 }
 
-export function requireOpenAIKey(): string {
-  const env = getEnv();
-  if (!env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for direct generation");
-  }
-  return env.OPENAI_API_KEY;
-}
 
 export function requireAuth0Config() {
   const env = getEnv();

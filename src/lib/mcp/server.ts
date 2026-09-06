@@ -11,7 +11,7 @@ export function createMcpServer() {
   const server = new McpServer({
     name: "SeniorStudio",
     version: "1.0.0",
-    description: "ChatGPT-to-SeniorStudio project and asset operations. Browser generation is initiated only by authenticated SeniorStudio web APIs.",
+    description: "SeniorStudio project and asset operations. Web generation uses explicit OpenAI and Google AI Studio APIs; MCP remains an optional ChatGPT inbound channel for saving external images.",
   });
 
 server.registerResource("seniorstudio-image-save", IMAGE_SAVE_WIDGET_URI, {}, async () => ({

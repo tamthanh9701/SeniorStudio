@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("SeniorStudio", () => {
-  test("should show login page", async ({ page }) => {
-    await page.goto("/login");
-    await expect(page.locator("h1")).toContainText("SeniorStudio");
+  test("redirects root to login", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveURL(/.*login/);
+    await expect(page.getByRole("heading", { name: "Welcome to SeniorStudio" })).toBeVisible();
   });
 
   test("should redirect to login when not authenticated", async ({ page }) => {
@@ -11,18 +12,22 @@ test.describe("SeniorStudio", () => {
     await expect(page).toHaveURL(/.*login/);
   });
 
-  test("should have accessible controls", async ({ page }) => {
+  test("has accessible disabled login controls and visible focus", async ({ page }) => {
     await page.goto("/login");
-    
-    // Check for form elements
-    const emailInput = page.locator("input[type='email']");
-    await expect(emailInput).toBeVisible();
-    
-    const submitButton = page.locator("button[type='submit']");
-    await expect(submitButton).toBeVisible();
-    
-    // Check keyboard accessibility
+    const emailInput = page.getByLabel("Email address");
+    const submitButton = page.getByRole("button", { name: /sign in/i });
+    await expect(page.getByLabel("Password")).toBeVisible();
+    await expect(submitButton).toBeDisabled();
     await emailInput.focus();
     await expect(emailInput).toBeFocused();
+    await expect(emailInput).toHaveCSS("box-shadow", /rgb|rgba/);
+  });
+
+  test("fits the mobile viewport without horizontal overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/login");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await expect(page.getByLabel("Email address")).toBeVisible();
   });
 });
