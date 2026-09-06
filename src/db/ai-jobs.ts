@@ -30,9 +30,10 @@ export const AiJobInputSchema = z.object({
   original_prompt: z.string().nullable().optional(),
 });
 
+export const AiJobModuleSchema = z.enum(["projects", "style"]);
 export const AiJobResultSchema = z.object({ asset_id: z.string().uuid(), version_id: z.string().uuid() });
 export const AiJobSchema = z.object({
-  id: z.string().uuid(), workspace_id: z.string().uuid(), project_id: z.string().uuid(), requested_by: z.string().uuid(),
+  id: z.string().uuid(), workspace_id: z.string().uuid(), project_id: z.string().uuid().nullable(), module: AiJobModuleSchema.default("projects"), requested_by: z.string().uuid(),
   asset_id: z.string().uuid().nullable(), parent_version_id: z.string().uuid().nullable(), version_id: z.string().uuid().nullable(),
   operation: AiOperationSchema, provider: AiProviderSchema, model: SupportedModelIdSchema, status: AiJobStatusSchema,
   attempt_count: z.number().int().nonnegative(), lease_owner: z.string().nullable(), lease_expires_at: z.string().nullable(),

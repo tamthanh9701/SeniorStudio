@@ -26,7 +26,7 @@ describe("provider adapters", () => {
     generate.mockResolvedValue({ data: [{ b64_json: Buffer.from("png-bytes").toString("base64"), revised_prompt: "revised" }] });
     const result = await openAiProvider.submit({
       client: {} as never, apiKey: "test-key", job: {
-        id: crypto.randomUUID(), workspace_id: crypto.randomUUID(), project_id: crypto.randomUUID(), requested_by: crypto.randomUUID(),
+        id: crypto.randomUUID(), workspace_id: crypto.randomUUID(), project_id: crypto.randomUUID(), module: "projects", requested_by: crypto.randomUUID(),
         asset_id: null, parent_version_id: null, version_id: null, operation: "text_to_image", provider: "openai", model: "openai/gpt-image-2",
         status: "submitting", attempt_count: 1, lease_owner: "worker", lease_expires_at: new Date().toISOString(), provider_request_id: null,
         provider_status: null, input: { prompt: "test", count: 1, size: "1024x1024", quality: "auto" }, output: {}, error_code: null,
@@ -56,7 +56,7 @@ describe("provider adapters", () => {
     });
     const result = await googleProvider.submit({
       client: {} as never, apiKey: "test-key", job: {
-        id: crypto.randomUUID(), workspace_id: crypto.randomUUID(), project_id: crypto.randomUUID(), requested_by: crypto.randomUUID(),
+        id: crypto.randomUUID(), workspace_id: crypto.randomUUID(), project_id: crypto.randomUUID(), module: "projects", requested_by: crypto.randomUUID(),
         asset_id: null, parent_version_id: null, version_id: null, operation: "text_to_image", provider: "google", model: "google/gemini-3.1-flash-image",
         status: "submitting", attempt_count: 1, lease_owner: "worker", lease_expires_at: new Date().toISOString(), provider_request_id: null,
         provider_status: null, input: { prompt: "test", count: 2, size: "1536x1024", quality: "auto" }, output: {}, error_code: null,

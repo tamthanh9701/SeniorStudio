@@ -29,6 +29,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   v_job public.ai_jobs;
   v_style_workspace uuid;
+  v_parent_project uuid;
 begin
   if auth.role() <> 'authenticated' or auth.uid() <> p_requested_by
      or p_workspace_id not in (select public.current_workspace_ids()) then

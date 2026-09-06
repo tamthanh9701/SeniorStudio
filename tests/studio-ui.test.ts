@@ -7,7 +7,7 @@ import { mergeProjectJob } from "@/lib/ai/use-project-jobs";
 const job = (overrides: Partial<AiJob> = {}): AiJob => ({
   id: "11111111-1111-4111-8111-111111111111",
   workspace_id: "22222222-2222-4222-8222-222222222222",
-  project_id: "33333333-3333-4333-8333-333333333333",
+  project_id: "33333333-3333-4333-8333-333333333333", module: "projects",
   requested_by: "44444444-4444-4444-8444-444444444444",
   asset_id: null, parent_version_id: null, version_id: null,
   operation: "text_to_image", provider: "google", model: "google/gemini-2.5-flash-image", status: "queued",
