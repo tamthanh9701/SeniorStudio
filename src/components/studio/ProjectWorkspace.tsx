@@ -10,7 +10,7 @@ import StudioShell from "@/components/studio/StudioShell";
 import ToolInspector, { type WorkspaceAsset } from "@/components/studio/ToolInspector";
 import { AiJobSchema, isTerminalStatus, type ProjectJobFeedItem, type SupportedModelId } from "@/db/ai-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
-import { useProjectJobs } from "@/lib/ai/use-project-jobs";
+import { useModuleJobs } from "@/lib/ai/use-module-jobs";
 
 export default function ProjectWorkspace({ project, projects, userEmail, assets, models, initialJobs, styleProfilesEnabled }: { project: { id: string; name: string }; projects: Array<{ id: string; name: string }>; userEmail: string; assets: WorkspaceAsset[]; models: ModelCatalogEntry[]; initialJobs: ProjectJobFeedItem[]; styleProfilesEnabled: boolean }) {
   const router = useRouter();
@@ -26,7 +26,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
   const [focusSignal, setFocusSignal] = useState(0);
   const [styleHighlight, setStyleHighlight] = useState(false);
   const refreshed = useRef(new Set<string>());
-  const { items, addJob } = useProjectJobs(project.id, initialJobs);
+  const { items, addJob } = useModuleJobs({ module: "projects", projectId: project.id }, initialJobs);
   const activeJobCount = items.filter(({ job }) => !isTerminalStatus(job.status)).length;
   const resultAssets = items.flatMap(({ job, result_urls }) => result_urls.map((url, index) => { const results = Array.isArray(job.output.results) ? job.output.results as Array<{ asset_id?: string; version_id?: string }> : []; return { id: results[index]?.asset_id ?? `${job.id}-${index}`, name: (job.input.original_prompt ?? job.input.prompt).trim().slice(0, 80) || "Untitled", signedUrl: url, versionId: results[index]?.version_id ?? null, createdAt: job.created_at }; }));
   const canvasAssets = [...assets, ...resultAssets.filter((result) => !assets.some((asset) => asset.id === result.id && asset.signedUrl === result.signedUrl))];
@@ -45,9 +45,33 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
   };
   const cancel = async (job: ProjectJobFeedItem["job"]) => { const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" }); const body = await response.json(); const parsed = AiJobSchema.safeParse(body.job); if (response.ok && parsed.success) addJob(parsed.data); else setError(`${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Cancellation failed"}`); };
   const retry = (job: ProjectJobFeedItem["job"]) => { setPrompt(job.input.original_prompt ?? job.input.prompt); setStyleId(job.input.style_id ?? null); setSettings({ modelId: job.model, size: job.input.size, quality: job.input.quality, count: job.input.count }); setTool("generate"); setFocusSignal((value) => value + 1); setStyleHighlight(true); window.setTimeout(() => setStyleHighlight(false), 4000); };
+  const [deleteAssetTarget, setDeleteAssetTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deletingAsset, setDeletingAsset] = useState(false);
+  const handleDeleteAsset = async () => {
+    if (!deleteAssetTarget) return;
+    setDeletingAsset(true);
+    const response = await fetch(`/api/assets/${deleteAssetTarget.id}`, { method: "DELETE" });
+    if (response.ok) {
+      setSelectedIndex(0);
+      router.refresh();
+    }
+    setDeletingAsset(false);
+    setDeleteAssetTarget(null);
+  };
   const selectResult = ({ url }: { url: string; assetId?: string }) => { const index = canvasAssets.findIndex((asset) => asset.signedUrl === url); if (index >= 0) setSelectedIndex(index); };
   const inspector = <ToolInspector tool={tool} setTool={setTool} models={availableModels} settings={settings} setSettings={setSettings} selectedAsset={selectedAsset} projectId={project.id} styleId={styleId} setStyleId={setStyleId} styleProfilesEnabled={styleProfilesEnabled} styleHighlight={styleHighlight} />;
-  const sidebar = <ProjectSidebar projects={projects} activeProjectId={project.id} recentJobs={items} userEmail={userEmail} />;
-  const center = <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-y-auto"><AssetCanvas assets={canvasAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} projectId={project.id} onEmptyFocus={() => setFocusSignal((value) => value + 1)} loadingCount={activeJobCount} />{items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}</div><GenerationComposer prompt={prompt} setPrompt={setPrompt} settings={settings} selectedModel={availableModels.find((model) => model.id === settings.modelId)} submitting={submitting} error={error} onSubmit={submit} focusSignal={focusSignal} /></div>;
-  return <StudioShell projects={projects} activeProjectId={project.id} userEmail={userEmail} recentJobs={items} leftSidebar={sidebar} center={center} inspector={inspector} />;
+  const sidebar = <ProjectSidebar activeModule="playground" recentJobs={items} userEmail={userEmail} />;
+  const center = <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-y-auto"><AssetCanvas assets={canvasAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} projectId={project.id} onEmptyFocus={() => setFocusSignal((value) => value + 1)} loadingCount={activeJobCount} onDelete={(assetId) => { const asset = canvasAssets.find((a) => a.id === assetId); if (asset) setDeleteAssetTarget(asset); }} />{items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}</div><GenerationComposer prompt={prompt} setPrompt={setPrompt} settings={settings} selectedModel={availableModels.find((model) => model.id === settings.modelId)} submitting={submitting} error={error} onSubmit={submit} focusSignal={focusSignal} /></div>;
+  return <><StudioShell projects={projects} activeProjectId={project.id} userEmail={userEmail} recentJobs={items} leftSidebar={sidebar} center={center} inspector={inspector} />{deleteAssetTarget && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="studio-card max-w-sm p-6">
+        <h3 className="text-lg font-semibold">Delete &quot;{deleteAssetTarget.name}&quot;?</h3>
+        <p className="mt-2 text-sm text-[#98a2b3]">This will permanently delete this asset and all its versions. This action cannot be undone.</p>
+        <div className="mt-4 flex justify-end gap-3">
+          <button onClick={() => setDeleteAssetTarget(null)} disabled={deletingAsset} className="px-4 py-2 text-sm">Cancel</button>
+          <button onClick={handleDeleteAsset} disabled={deletingAsset} className="px-4 py-2 text-sm bg-[#ef6262] text-white rounded-lg">{deletingAsset ? "Deleting…" : "Delete permanently"}</button>
+        </div>
+      </div>
+    </div>
+  )}</>;
 }

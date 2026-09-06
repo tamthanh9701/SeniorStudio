@@ -32,7 +32,7 @@ export default function StudioShell({ projects, activeProjectId, leftSidebar, ce
         <label className="min-w-0 flex-1">
           <span className="sr-only">Active project</span>
           <select className="studio-control truncate" value={activeProjectId ?? ""} onChange={(event) => { if (event.target.value) { setInspectorOpen(false); router.push(`/projects/${event.target.value}`); } }}>
-            {!activeProjectId && <option value="">Projects</option>}
+            {!activeProjectId && <option value="">Playground</option>}
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
         </label>
@@ -58,7 +58,7 @@ export default function StudioShell({ projects, activeProjectId, leftSidebar, ce
           {inspector}
         </section>
       </div>}
-      <span className="sr-only" aria-live="polite">{activeProject ? `${activeProject.name} workspace` : "Projects"}</span>
+      <span className="sr-only" aria-live="polite">{activeProject ? `${activeProject.name} workspace` : "Image Playground"}</span>
     </div>
   );
 }
