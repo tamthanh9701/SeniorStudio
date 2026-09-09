@@ -27,17 +27,17 @@ function builder(final: unknown) {
 
 const serviceClient = {
   storage: { from: vi.fn() },
-  from: vi.fn((table: string) =>
-    table === "provider_settings"
-      ? builder({ data: null })
-      : builder({ data: null, error: null }),
-  ),
+  rpc: vi.fn(async () => ({ data: { id: "style-1", schema: JSON.parse(VALID_SCHEMA), status: "draft" }, error: null })),
+  from: vi.fn((table: string) => {
+    if (table === "provider_settings") return builder({ data: { api_key: "test-key" } });
+    return builder({ data: null, error: null });
+  }),
 };
 
 let client: Record<string, unknown>;
 
 function makeClient() {
-  return { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn() };
+  return { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn(async () => ({ data: { id: "style-1", schema: JSON.parse(VALID_SCHEMA), status: "draft" }, error: null })) };
 }
 
 const onePixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZlS8AAAAASUVORK5CYII=", "base64");
@@ -70,7 +70,7 @@ describe("analyzeStyleProfile", () => {
   function stubTables({ style, refs, updateFinal }: { style: Record<string, unknown> | null; refs: unknown[]; updateFinal?: Record<string, unknown> }) {
     const from = client.from as ReturnType<typeof vi.fn>;
     from.mockImplementation((table: string) => {
-      if (table === "provider_settings") return builder({ data: null });
+      if (table === "provider_settings") return builder({ data: { api_key: "test-key" } });
       if (table === "styles") {
         return {
           ...builder({ data: style, error: null }),

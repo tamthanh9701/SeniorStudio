@@ -1,5 +1,3 @@
-// Ported from Restyle commit dfab2fea903923e4a19171cc4a2eb4cf4144d8ae
-// (src/lib/style-fingerprint.ts). Import path adjusted only.
 import type { PromptSchema } from './prompt-schema';
 import type { ReferencePreprocessSummary } from './reference-preprocess';
 
@@ -124,6 +122,20 @@ function paletteMode(colorCount: number): StyleFingerprint['palette_system']['mo
   return 'limited_palette';
 }
 
+type StyleFamily = 'vector_illustration' | 'photographic' | 'painting' | '3d_rendered' | 'unknown';
+
+function detectStyleFamily(schema: AnyRecord | null | undefined): StyleFamily {
+  const medium = text(schema, 'artistic_style', 'medium').toLowerCase();
+  const rendering = text(schema, 'artistic_style', 'rendering_style').toLowerCase();
+  const combined = `${medium} ${rendering}`;
+
+  if (/\b(photo|photos|photograph|photographs|photography|photographic|photorealistic|photorealism|realistic|camera|dslr|cinematic)\b/.test(combined)) return 'photographic';
+  if (/\b(paint|oil|watercolor|gouache|acrylic|impasto|brushwork)\b/.test(combined)) return 'painting';
+  if (/\b(3d|rendered|cgi|blender|cinema4d|octane)\b/.test(combined)) return '3d_rendered';
+  if (/\b(vector|flat|graphic|sticker|icon|illustration|cartoon|line.?art)\b/.test(combined)) return 'vector_illustration';
+  return 'unknown';
+}
+
 export function buildStyleFingerprint(
   schema: PromptSchema | AnyRecord | null | undefined,
   summary?: ReferencePreprocessSummary | null,
@@ -141,35 +153,56 @@ export function buildStyleFingerprint(
   const hatching = detectHatching(schema);
   const backgroundType = detectBackgroundPolicy(schema, summary || undefined);
   const format = detectFormat(schema, summary || undefined);
+  const family = detectStyleFamily(schema as AnyRecord);
 
   return {
     version: '1.0',
     style_family: format === 'compact_isolated_sticker'
       ? 'transparent promotional sticker vector'
       : text(schema, 'artistic_style', 'style_reference') || 'reusable visual style',
-    rendering_language: rendering || 'colored vector illustration with consistent reusable line and texture rules',
+    rendering_language: rendering || (family === 'photographic'
+      ? 'photorealistic rendering with natural lighting and material response'
+      : family === 'painting'
+        ? 'painterly style with visible brushwork and color blending'
+        : family === '3d_rendered'
+          ? '3D rendered with volume, material response, and lighting cues'
+          : 'colored vector illustration with consistent reusable line and texture rules'),
     background_policy: {
       type: backgroundType,
-      forbid: [
-        'solid black background unless explicitly requested',
-        'busy realistic room or cafe background unless explicitly requested',
-        'deep perspective scene when the style is an isolated asset',
-      ],
+      forbid: family === 'photographic'
+        ? ['artificially flattened background unless requested', 'illustrated background mixed with photographic subject']
+        : family === 'vector_illustration'
+          ? ['solid black background unless explicitly requested', 'busy realistic room or cafe background unless explicitly requested', 'deep perspective scene when the style is an isolated asset']
+          : ['solid black background unless explicitly requested', 'background style inconsistent with subject rendering'],
     },
     line_system: {
-      outer_contour: 'clean colored outline, medium thickness',
-      inner_detail: hatching === 'unknown' ? 'consistent interior detail lines' : 'fine parallel or contour hatching on major surfaces',
-      line_color_policy: 'use colored lines that match the palette; avoid generic black ink unless the reference requires it',
-      hatching_density: hatching,
+      outer_contour: family === 'vector_illustration'
+        ? 'clean colored outline, medium thickness'
+        : family === 'photographic'
+          ? 'no artificial outlines; rely on natural edge contrast'
+          : family === 'painting'
+            ? 'soft edge definition through color/value contrast'
+            : 'minimal edge artifacts; rely on lighting for definition',
+      inner_detail: family === 'vector_illustration'
+        ? (hatching === 'unknown' ? 'consistent interior detail lines' : 'fine parallel or contour hatching on major surfaces')
+        : 'natural detail through material texture and lighting',
+      line_color_policy: family === 'vector_illustration'
+        ? 'use colored lines that match the palette; avoid generic black ink unless the reference requires it'
+        : 'no artificial line color; rely on edge definition',
+      hatching_density: family === 'vector_illustration' ? hatching : 'none',
     },
     fill_system: {
-      allow_pastel_fills: true,
-      texture_required: hatching !== 'none',
-      rule: 'Pastel flat fills are allowed, but large surfaces should include line texture or hatching; avoid large clean untextured vector fills.',
+      allow_pastel_fills: family === 'vector_illustration',
+      texture_required: family === 'vector_illustration' && hatching !== 'none',
+      rule: family === 'vector_illustration'
+        ? 'Pastel flat fills are allowed, but large surfaces should include line texture or hatching; avoid large clean untextured vector fills.'
+        : family === 'photographic'
+          ? 'Use natural material fills with realistic texture response.'
+          : 'Fills appropriate to the detected rendering style.',
     },
     palette_system: {
       mode: paletteMode(uniqueHex.length || 3),
-      max_hue_families: 3,
+      max_hue_families: family === 'vector_illustration' ? 3 : 5,
       detected_hex: uniqueHex,
       allow_user_palette_override: true,
     },
@@ -186,12 +219,7 @@ export function buildStyleFingerprint(
         'adding extra furniture or scenery when the brief asks for minimal background',
       ],
     },
-    reference_content_to_ignore: [
-      'holiday tree unless requested',
-      'popcorn, cinema props, or movie reels unless requested',
-      'group of people unless requested',
-      'financial props, coins, or gift boxes unless requested',
-    ],
+    reference_content_to_ignore: [],
     hard_constraints: [
       'Separate reusable style rules from one-off reference content.',
       'If a user provides a palette override, treat it as dominant and suppress unrelated accent colors.',

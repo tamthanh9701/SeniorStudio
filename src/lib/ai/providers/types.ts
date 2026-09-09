@@ -13,7 +13,14 @@ export type ProviderPollResult =
   | { state: "processing"; providerStatus: string; metadata: Record<string, unknown> }
   | { state: "completed"; images: ProviderImage[]; providerStatus: string; metadata: Record<string, unknown> };
 
-export type ProviderContext = { client: SupabaseClient; job: AiJob; apiKey: string };
+export type ProviderContext = {
+  client: SupabaseClient;
+  job: AiJob;
+  apiKey: string;
+  inputImages?: Array<{ role: "source" | "reference"; id: string; bytes: Uint8Array; mimeType: string }>;
+  signal?: AbortSignal;
+  maskBytes?: Uint8Array;
+};
 
 export interface ImageProvider {
   submit(context: ProviderContext): Promise<ProviderSubmission>;

@@ -435,7 +435,7 @@ function truncateAtWord(value: string, maxChars: number): string {
  */
 export function buildStyleGenerationPrompt(
   schema: PromptSchema | Record<string, unknown> | null | undefined,
-  maxChars = 1800,
+  maxChars = 1600,
 ): string {
   if (!schema || typeof schema !== "object") return "Coherent reusable visual style.";
 

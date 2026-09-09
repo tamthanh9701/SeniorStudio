@@ -27,6 +27,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
 function statusForError(message: string) {
   if (message.includes("NOT_FOUND")) return 404;
   if (message.includes("PROVIDER_NOT_CONFIGURED")) return 503;
+  if (message.includes("quota_exceeded")) return 429;
+  if (message.includes("QUOTA_UNAVAILABLE")) return 503;
   return 400;
 }
 
@@ -38,30 +40,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   const parsed = TextToImageEnqueueSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });
   try {
-    const model = await assertModelSupports(parsed.data.model, "text_to_image");
-    if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient() }))) throw new Error("PROVIDER_NOT_CONFIGURED");
-    if (!model.sizes.includes(parsed.data.size as never) || !model.qualities.includes(parsed.data.quality as never)) throw new Error("INVALID_MODEL");
     const { data: member } = await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single();
     if (!member) throw new Error("NOT_FOUND");
+    const workspaceId = member.workspace_id;
+    const model = await assertModelSupports(parsed.data.model, "text_to_image", supabase, workspaceId);
+    if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient(), workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
+    if (!model.sizes.includes(parsed.data.size as never) || !model.qualities.includes(parsed.data.quality as never)) throw new Error("INVALID_MODEL");
     let prompt = parsed.data.prompt;
     let styleId: string | null = null;
     if (parsed.data.styleId) {
       if (!styleProfilesEnabled()) throw new Error("INVALID_REQUEST");
       styleId = parsed.data.styleId;
-      prompt = await compileStyledPrompt({ styleId: parsed.data.styleId, originalPrompt: parsed.data.prompt, client: supabase });
+      prompt = await compileStyledPrompt({ styleId: parsed.data.styleId, originalPrompt: parsed.data.prompt, client: supabase, costMode: parsed.data.costMode });
     }
-    const { data: job, error } = await supabase.rpc("enqueue_ai_job", {
-      p_workspace_id: member.workspace_id, p_project_id: projectId, p_requested_by: user.id,
-      p_operation: parsed.data.operation, p_provider: providerForModel(parsed.data.model), p_model: parsed.data.model,
+    const { data: job, error } = await supabase.rpc("enqueue_text_to_image_job_v2", {
+      p_workspace_id: workspaceId, p_project_id: projectId, p_requested_by: user.id,
+      p_provider: providerForModel(parsed.data.model), p_model: parsed.data.model,
       p_prompt: prompt, p_count: parsed.data.count, p_size: parsed.data.size, p_quality: parsed.data.quality,
-      p_asset_id: null, p_parent_version_id: null, p_mask_storage_path: null,
       p_style_id: styleId, p_original_prompt: styleId ? parsed.data.prompt : null,
+      p_module: "projects", p_cost_mode: parsed.data.costMode,
+      p_requested_model_id: parsed.data.model, p_reference_ids: [], p_temperature: null,
     });
     if (error) throw error;
     return NextResponse.json({ job }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const code = ["NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "STYLE_NOT_FOUND", "STYLE_NOT_ACTIVE"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
+    const code = ["NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "STYLE_NOT_FOUND", "STYLE_NOT_ACTIVE", "quota_exceeded", "QUOTA_UNAVAILABLE"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
     return NextResponse.json({ error: { code, message } }, { status: statusForError(message) });
   }
 }

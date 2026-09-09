@@ -15,7 +15,7 @@ vi.mock("../src/env", async (importOriginal) => {
 
 import { resolveStyleProviderConfig } from "../src/lib/style/providers/config";
 
-const source = { user: {} as never, service: {} as never };
+const source = { user: {} as never, service: {} as never, workspaceId: "ws-test" };
 
 beforeEach(() => {
   mocks.getEnv.mockReset();

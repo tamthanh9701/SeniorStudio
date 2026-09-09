@@ -75,11 +75,12 @@ export function SectionLabel({ children, className = "" }: { children: ReactNode
   return <p className={`px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#667085] ${className}`}>{children}</p>;
 }
 
-export default function ModuleContextSidebar({ currentModule, recentJobs = [], userEmail, contextLabel }: {
+export default function ModuleContextSidebar({ currentModule, recentJobs = [], userEmail, contextLabel, libraryTabs = [] }: {
   currentModule: ModuleId;
   recentJobs?: ProjectJobFeedItem[];
   userEmail: string;
   contextLabel?: string | null;
+  libraryTabs?: Array<{ id: string; name: string }>;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col p-3">
@@ -87,6 +88,14 @@ export default function ModuleContextSidebar({ currentModule, recentJobs = [], u
       <div className="min-h-0 flex-1 overflow-y-auto">
         <SectionLabel>Modules</SectionLabel>
         <ModuleLinks active={currentModule} className="mt-2" />
+        {libraryTabs.length > 0 && (
+          <>
+            <SectionLabel className="mt-6">Libraries</SectionLabel>
+            <ul className="mt-2 space-y-0.5">
+              {libraryTabs.map((library) => <li key={library.id} className="truncate rounded-xl px-3 py-2 text-sm text-[#98a2b3]" title={library.name}>{library.name}</li>)}
+            </ul>
+          </>
+        )}
         {contextLabel && (
           <>
             <SectionLabel className="mt-6">Context</SectionLabel>

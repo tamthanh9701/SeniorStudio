@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { STORAGE_BUCKET } from "../../db/schema";
+import { downloadImageBytes, parseAllowedHosts } from "./download";
+import { removeOwnedObjects, signOwnedUrl, ownedStorageObjectFromPath } from "./ownership";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MiB
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -28,7 +30,7 @@ type IngestedImage = {
   version: { id: string; storage_path: string };
 };
 
-async function validateImageBytes(bytes: Uint8Array): Promise<{
+export async function prepareImageBytes(bytes: Uint8Array): Promise<{
   bytes: Uint8Array;
   mimeType: "image/png" | "image/jpeg" | "image/webp";
   extension: "png" | "jpg" | "webp";
@@ -38,7 +40,6 @@ async function validateImageBytes(bytes: Uint8Array): Promise<{
   if (bytes.byteLength > MAX_FILE_SIZE) {
     throw new AssetError("FILE_TOO_LARGE", "File exceeds 50 MiB limit");
   }
-
   try {
     const sharp = (await import("sharp")).default;
     const image = sharp(Buffer.from(bytes), { failOn: "error" });
@@ -48,17 +49,9 @@ async function validateImageBytes(bytes: Uint8Array): Promise<{
       : format === "jpeg" ? "image/jpeg"
       : format === "webp" ? "image/webp"
       : null;
-    if (!mimeType || !metadata.width || !metadata.height) {
-      throw new Error("unsupported image");
-    }
+    if (!mimeType || !metadata.width || !metadata.height) throw new Error("unsupported image");
     const extension: "png" | "jpg" | "webp" = format === "jpeg" ? "jpg" : format === "png" ? "png" : "webp";
-    return {
-      bytes,
-      mimeType,
-      extension,
-      width: metadata.width,
-      height: metadata.height,
-    };
+    return { bytes, mimeType, extension, width: metadata.width, height: metadata.height };
   } catch {
     throw new AssetError("UNSUPPORTED_IMAGE", "Image must be a decoded PNG, JPEG, or WebP file");
   }
@@ -79,7 +72,7 @@ export async function ingestImageBytes(params: {
 }): Promise<IngestedImage> {
   const assetId = params.assetId ?? crypto.randomUUID();
   const versionId = crypto.randomUUID();
-  const decoded = await validateImageBytes(
+  const decoded = await prepareImageBytes(
     params.bytes instanceof Uint8Array ? params.bytes : new Uint8Array(params.bytes)
   );
   const storagePath = `${params.workspaceId}/${params.projectId}/${assetId}/${versionId}/source.${decoded.extension}`;
@@ -115,7 +108,7 @@ export async function ingestImageBytes(params: {
   });
 
   if (commitError) {
-    await params.client.storage.from(STORAGE_BUCKET).remove([storagePath]);
+    await removeOwnedObjects(params.client, [ownedStorageObjectFromPath(storagePath)]).catch(() => undefined);
     if (commitError.message.includes("VERSION_CONFLICT")) {
       throw new AssetError("VERSION_CONFLICT", "Parent version does not belong to the asset");
     }
@@ -144,33 +137,25 @@ export async function ingestImage(params: {
   providerResponseId?: string;
   metadata?: Record<string, unknown>;
 }): Promise<IngestedImage> {
-  if (!params.fileUrl.startsWith("https://")) {
-    throw new AssetError("FILE_UNAVAILABLE", "File URL must use HTTPS");
-  }
-
-  const response = await fetch(params.fileUrl);
-  if (!response.ok) {
-    throw new AssetError("FILE_UNAVAILABLE", "Failed to download file");
-  }
-  const contentLength = Number(response.headers.get("content-length"));
-  if (contentLength > MAX_FILE_SIZE) {
-    throw new AssetError("FILE_TOO_LARGE", "File exceeds 50 MiB limit");
+  let bytes: Uint8Array;
+  try {
+    bytes = await downloadImageBytes(new URL(params.fileUrl), {
+      allowedHosts: parseAllowedHosts(process.env.MCP_IMAGE_DOWNLOAD_HOSTS),
+    });
+  } catch (error) {
+    if (error instanceof AssetError) throw error;
+    throw new AssetError("FILE_UNAVAILABLE", error instanceof Error ? error.message : "Failed to download file");
   }
 
   return ingestImageBytes({
     ...params,
-    bytes: await response.arrayBuffer(),
+    bytes,
   });
 }
 
 export async function getSignedUrl(
   client: SupabaseClient,
-  storagePath: string
+  storagePath: string,
 ): Promise<string> {
-  const { data, error } = await client.storage
-    .from(STORAGE_BUCKET)
-    .createSignedUrl(storagePath, 600); // 10 minutes
-
-  if (error) throw error;
-  return data.signedUrl;
+  return signOwnedUrl(client, ownedStorageObjectFromPath(storagePath), 600);
 }

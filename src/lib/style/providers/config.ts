@@ -27,6 +27,7 @@ const DEFAULT_MODELS: Record<StyleProviderId, string> = {
 export async function resolveStyleProviderConfig(source: {
   user: SupabaseClient;
   service: SupabaseClient;
+  workspaceId: string;
 }): Promise<StyleProviderConfig> {
   const env = getEnv();
   let provider: StyleProviderId;

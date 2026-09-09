@@ -2,8 +2,12 @@
 
 import { LoaderCircle, Plus, Trash2, Upload, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import ClarificationForm from "./ClarificationForm";
+import SchemaEditor from "./SchemaEditor";
+import type { StyleClarificationQuestionSet } from "@/lib/style/clarification-questions";
 
-type StyleListItem = { id: string; name: string; status: string; referenceCount: number; updatedAt: string };
+type LibraryItem = { id: string; name: string; sort_order: number };
+type StyleListItem = { id: string; name: string; status: string; referenceCount: number; updatedAt: string; libraryId: string | null; operability?: { score?: number; grade?: string } | null };
 type StyleReference = { id: string; signed_url: string | null; mime_type: string; byte_size: number; width: number | null; height: number | null; content_hash: string | null; created_at: string };
 type StyleDetail = {
   id: string;
@@ -13,8 +17,11 @@ type StyleDetail = {
   fingerprint: Record<string, unknown> | null;
   invariant_contract: Record<string, unknown> | null;
   analysis_meta: Record<string, unknown> | null;
+  clarification_questions?: StyleClarificationQuestionSet | null;
+  operability?: { score: number; grade: "production_ready" | "usable_with_warnings" | "not_ready"; checks: Array<{ id: string; label: string; status: string; detail: string }> } | null;
   updated_at: string;
   references?: StyleReference[];
+  schemaVersions?: Array<{ id: string; schema: Record<string, unknown>; source: string; created_at: string }>;
 };
 
 function asText(value: unknown): string | null {
@@ -59,10 +66,16 @@ export default function StylePanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
+  const [libraries, setLibraries] = useState<LibraryItem[]>([]);
+  const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null); // null = All
+
   const [stylesLoading, setStylesLoading] = useState(true);
-  const loadStyles = useCallback(async () => {
+  const loadStyles = useCallback(async (libraryId: string | null = null) => {
     try {
-      const response = await fetch("/api/styles", { cache: "no-store" });
+      // If libraryId is null, fetch all styles (unfiltered)
+      // Otherwise filter by libraryId
+      const query = libraryId === null ? "" : `?libraryId=${libraryId}`;
+      const response = await fetch(`/api/styles${query}`, { cache: "no-store" });
       if (!response.ok) return;
       const body = await response.json();
       setStyles(Array.isArray(body.styles) ? body.styles : []);
@@ -70,6 +83,13 @@ export default function StylePanel() {
     } finally {
       setStylesLoading(false);
     }
+  }, []);
+
+  const loadLibraries = useCallback(async () => {
+    const response = await fetch("/api/styles/libraries", { cache: "no-store" });
+    if (!response.ok) return;
+    const body = await response.json();
+    setLibraries(Array.isArray(body.libraries) ? body.libraries : []);
   }, []);
 
   const loadDetail = useCallback(async (styleId: string) => {
@@ -80,7 +100,8 @@ export default function StylePanel() {
     return body.style as StyleDetail;
   }, []);
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadStyles(); }, 0); return () => window.clearTimeout(timer); }, [loadStyles]);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadStyles(activeLibraryId); }, 0); return () => window.clearTimeout(timer); }, [loadStyles, activeLibraryId]);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadLibraries(); }, 0); return () => window.clearTimeout(timer); }, [loadLibraries]);
 
   const expand = async (styleId: string) => {
     if (expandedId === styleId) { setExpandedId(null); setDetail(null); return; }
@@ -92,14 +113,12 @@ export default function StylePanel() {
   const create = async () => {
     const name = newName.trim();
     if (!name) return;
-    setBusy("create"); setFeedback(null);
-    const response = await fetch("/api/styles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const response = await fetch("/api/styles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, libraryId: activeLibraryId }) });
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
       setNewName("");
       const created = body.style as StyleListItem;
-      const current = await loadStyles();
-      if (created && current) setExpandedId(created.id);
+      const current = await loadStyles(activeLibraryId);
     } else {
       setFeedback({ kind: "error", text: `${body.error?.code ?? "CREATE_FAILED"}: ${body.error?.message ?? "Unable to create style"}` });
     }
@@ -114,7 +133,7 @@ export default function StylePanel() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) setFeedback({ kind: "error", text: `${body.error?.code ?? "UPLOAD_FAILED"}: ${body.error?.message ?? "Upload failed"}` });
     await loadDetail(styleId);
-    await loadStyles();
+    await loadStyles(activeLibraryId);
     setBusy(null);
   };
 
@@ -123,7 +142,7 @@ export default function StylePanel() {
     const response = await fetch(`/api/styles/${styleId}/references/${referenceId}`, { method: "DELETE" });
     if (!response.ok) setFeedback({ kind: "error", text: "Unable to remove reference." });
     await loadDetail(styleId);
-    await loadStyles();
+    await loadStyles(activeLibraryId);
     setBusy(null);
   };
 
@@ -135,7 +154,7 @@ export default function StylePanel() {
       setFeedback({ kind: "error", text: `${body.error?.code ?? "STYLE_ANALYSIS_FAILED"}: ${body.error?.message ?? "Analysis failed; references kept"}` });
     }
     await loadDetail(styleId);
-    await loadStyles();
+    await loadStyles(activeLibraryId);
     setBusy(null);
   };
 
@@ -147,7 +166,15 @@ export default function StylePanel() {
       setFeedback({ kind: "error", text: `${body.error?.code ?? "STYLE_NOT_READY"}: ${body.error?.message ?? "Unable to activate style"}` });
     }
     await loadDetail(styleId);
-    await loadStyles();
+    await loadStyles(activeLibraryId);
+    setBusy(null);
+  };
+
+  const rollback = async (styleId: string, schema: Record<string, unknown>) => {
+    setBusy("rollback"); setFeedback(null);
+    const response = await fetch(`/api/styles/${styleId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schema }) });
+    if (!response.ok) setFeedback({ kind: "error", text: "Unable to rollback schema." });
+    await loadDetail(styleId);
     setBusy(null);
   };
 
@@ -161,6 +188,7 @@ export default function StylePanel() {
   };
 
   const analyzed = Boolean(detail?.analysis_meta && (detail.analysis_meta as Record<string, unknown>).analyzedAt);
+  const canActivate = analyzed && (detail?.operability?.grade === "production_ready" || detail?.operability?.grade === "usable_with_warnings");
 
   return <div className="space-y-3">
     <div className="flex gap-2">
@@ -168,6 +196,10 @@ export default function StylePanel() {
       <button onClick={() => void create()} disabled={!newName.trim() || busy !== null} aria-label="Create style" className="studio-button-primary shrink-0">{busy === "create" ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}</button>
     </div>
     {feedback && <p role="alert" className={`text-sm ${feedback.kind === "error" ? "text-[#ff9b9b]" : "text-[#66d7ae]"}`}>{feedback.text}</p>}
+    {libraries.length > 0 && <div className="flex gap-1 overflow-x-auto pb-2">
+      <button onClick={() => setActiveLibraryId(null)} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${activeLibraryId === null ? "bg-white/10 text-white" : "text-[#98a2b3] hover:text-white"}`}>All</button>
+      {libraries.map((lib) => <button key={lib.id} onClick={() => setActiveLibraryId(lib.id)} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${activeLibraryId === lib.id ? "bg-white/10 text-white" : "text-[#98a2b3] hover:text-white"}`}>{lib.name}</button>)}
+    </div>}
     {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2">
       <div className="h-16 animate-pulse rounded-xl bg-white/[0.04]" />
       <div className="h-16 animate-pulse rounded-xl bg-white/[0.04]" />
@@ -180,7 +212,7 @@ export default function StylePanel() {
         <button onClick={() => void expand(style.id)} aria-expanded={expanded} className="flex w-full items-center justify-between gap-3 p-4 text-left">
           <span className="min-w-0">
             <span className="flex items-center gap-2 font-medium"><span aria-hidden className={style.status === "active" ? "text-[#66d7ae]" : "text-[#667085]"}>{style.status === "active" ? "● Active" : "○ Draft"}</span><span className="truncate">{style.name}</span></span>
-            <span className="mt-1 block text-xs text-[#667085]">{style.referenceCount}/8 refs · updated {new Date(style.updatedAt).toLocaleString()}</span>
+            <span className="mt-1 block text-xs text-[#667085]">{style.referenceCount}/8 refs{style.operability?.score !== undefined ? ` · ${style.operability.grade} ${style.operability.score}/100` : ""} · updated {new Date(style.updatedAt).toLocaleString()}</span>
           </span>
         </button>
         {expanded && (
@@ -211,8 +243,15 @@ export default function StylePanel() {
               {groupText(detail.schema, "mood_atmosphere", ["overall_mood", "emotional_tone"]) && <p>Mood: {groupText(detail.schema, "mood_atmosphere", ["overall_mood", "emotional_tone"])}</p>}
               {contractText(detail.invariant_contract, "forbidden_elements") && <p>Drift guard: {contractText(detail.invariant_contract, "forbidden_elements")}</p>}
             </div>}
+            {detail.operability && <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3 text-xs">
+              <p className="font-medium text-[#d0d5dd]">{detail.operability.grade === "production_ready" ? "Green" : detail.operability.grade === "usable_with_warnings" ? "Amber" : "Red"} · {detail.operability.grade} ({detail.operability.score}/100)</p>
+              <ul className="mt-2 space-y-1 text-[#98a2b3]">{detail.operability.checks.map((check) => <li key={check.id}>{check.status}: {check.label} — {check.detail}</li>)}</ul>
+            </div>}
+            {detail.clarification_questions && detail.clarification_questions.questions.length > 0 && <ClarificationForm styleId={style.id} questions={detail.clarification_questions} onValidated={() => loadDetail(style.id)} />}
+            {detail.schema && detail.status === "draft" && <details className="rounded-xl border border-white/10 bg-white/[0.025] p-3"><summary className="cursor-pointer font-medium text-[#d0d5dd]">Edit Schema</summary><div className="mt-4"><SchemaEditor styleId={style.id} schema={detail.schema} onSaved={() => loadDetail(style.id)} /></div></details>}
+            {detail.schemaVersions && detail.schemaVersions.length > 1 && <button type="button" className="studio-button-secondary w-full" disabled={busy !== null} onClick={() => void rollback(style.id, detail.schemaVersions![1].schema)}>Rollback to previous version</button>}
             <div className="flex gap-2">
-              <button onClick={() => void activate(style.id)} disabled={!analyzed || busy !== null || detail.status === "active"} className="studio-button-primary flex-1">{busy === "activate" ? <LoaderCircle className="size-4 animate-spin" /> : detail.status === "active" ? "Active" : "Activate"}</button>
+              <button onClick={() => void activate(style.id)} disabled={!canActivate || busy !== null || detail.status === "active"} className="studio-button-primary flex-1">{busy === "activate" ? <LoaderCircle className="size-4 animate-spin" /> : detail.status === "active" ? "Active" : "Activate"}</button>
               <button onClick={() => void remove(style.id)} disabled={busy !== null} className="studio-button-danger shrink-0" aria-label={`Delete style ${style.name}`}><Trash2 className="size-4" /></button>
             </div>
           </div> : <div className="border-t border-white/10 p-4 text-sm text-[#98a2b3]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Loading…</div>

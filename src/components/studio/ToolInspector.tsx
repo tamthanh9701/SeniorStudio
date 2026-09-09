@@ -10,7 +10,7 @@ import type { GenerationSettings } from "@/components/studio/GenerationComposer"
 
 export type WorkspaceAsset = { id: string; name: string; signedUrl: string | null; versionId: string | null; width?: number | null; height?: number | null; createdAt: string };
 
-type StyleOption = { id: string; name: string; status: string };
+type StyleOption = { id: string; name: string; libraryId: string | null; status: string };
 
 export default function ToolInspector({ tool, setTool, models, settings, setSettings, selectedAsset, projectId, styleId, setStyleId, styleProfilesEnabled, styleHighlight = false }: {
   tool: "generate" | "inpaint" | "style";

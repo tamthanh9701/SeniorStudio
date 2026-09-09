@@ -23,11 +23,13 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   if (!user) redirect("/login");
 
+  const { data: workspaceMember } = await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single();
+  const workspaceId = workspaceMember?.workspace_id;
   const [{ data: project, error: projectError }, { data: projects }, { data: assets, error: assetsError }, modelCatalog, { data: jobs }] = await Promise.all([
     supabase.from("projects").select("id, name, created_at").eq("id", projectId).maybeSingle(),
     supabase.from("projects").select("id, name").order("created_at", { ascending: false }),
     supabase.from("assets").select("id, name, kind, current_version_id, created_at").eq("project_id", projectId).order("created_at", { ascending: false }),
-    getModelCatalog(supabase),
+    workspaceId ? getModelCatalog(supabase, workspaceId) : Promise.resolve([]),
     supabase.from("ai_jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(50),
   ]);
   if (projectError) throw new Error(`Unable to load project: ${projectError.message}`);

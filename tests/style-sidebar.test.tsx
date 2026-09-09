@@ -9,6 +9,7 @@ vi.mock("@/supabase/client", () => ({
   })),
 }));
 
+import ModuleContextSidebar from "@/components/studio/ModuleContextSidebar";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import ProjectSidebar from "@/components/studio/ProjectSidebar";
@@ -67,5 +68,29 @@ describe("module sidebar", () => {
     expect(html).toContain('href="/style"');
     expect(html).toContain("portrait study");
     expect(html).toContain("restyle");
+  });
+});
+
+describe("style workspace sidebar", () => {
+  it("renders library tabs when libraries exist", () => {
+    const html = renderToStaticMarkup(
+      <ModuleContextSidebar
+        currentModule="style"
+        recentJobs={[]}
+        userEmail="user@example.com"
+        libraryTabs={[
+          { id: "550e8400-e29b-41d4-a716-446655440000", name: "Brand Kit" },
+          { id: "550e8400-e29b-41d4-a716-446655440001", name: "Editorial" },
+        ]}
+      />,
+    );
+    expect(html).toContain("Libraries");
+    expect(html).toContain("Brand Kit");
+    expect(html).toContain("Editorial");
+  });
+
+  it("omits the libraries section when no libraries exist", () => {
+    const html = renderToStaticMarkup(<ModuleContextSidebar currentModule="style" recentJobs={[]} userEmail="user@example.com" />);
+    expect(html).not.toContain("Libraries");
   });
 });

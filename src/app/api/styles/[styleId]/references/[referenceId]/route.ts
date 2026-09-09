@@ -23,9 +23,28 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .maybeSingle();
   if (!reference) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Reference not found" } }, { status: 404 });
 
-  const { error: storageError } = await getServiceClient().storage.from(STORAGE_BUCKET).remove([reference.storage_path]);
-  if (storageError) console.error(`reference storage remove failed path=${reference.storage_path}: ${storageError.message}`);
-  const { error } = await supabase.from("style_references").delete().eq("id", referenceId);
-  if (error) return NextResponse.json({ error: { code: "DELETE_FAILED", message: error.message } }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  const { data: style } = await supabase
+    .from("styles").select("workspace_id").eq("id", styleId).maybeSingle();
+  if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+
+  // Validate path ownership before privileged delete.
+  const styleIdPrefix = `${style.workspace_id}/`;
+  if (!reference.storage_path.startsWith(styleIdPrefix)) {
+    console.error(`reference storage_path mismatch: path=${reference.storage_path} style_ws=${style.workspace_id}`);
+    return NextResponse.json({ error: { code: "DELETE_FAILED", message: "Reference path ownership mismatch" } }, { status: 500 });
+  }
+
+  try {
+    // DB delete first — fail-closed on row error.
+    const { error } = await supabase.from("style_references").delete().eq("id", referenceId);
+    if (error) return NextResponse.json({ error: { code: "DELETE_FAILED", message: error.message } }, { status: 500 });
+
+    // Storage remove is best-effort after confirmed DB delete.
+    const { error: storageError } = await getServiceClient().storage.from(STORAGE_BUCKET).remove([reference.storage_path]);
+    if (storageError) console.error(`reference storage remove failed path=${reference.storage_path}: ${storageError.message}`);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: { code: "DELETE_FAILED", message } }, { status: 500 });
+  }
 }

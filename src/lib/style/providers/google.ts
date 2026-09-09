@@ -3,7 +3,7 @@
 // arrive already uploaded through /api/styles/[id]/references.
 import { StyleError } from "../errors";
 import type { StyleAnalysisProvider, StyleAnalysisRequest, StyleAnalysisResult } from "./types";
-import { withProviderRetry } from "./retry";
+import { RetryableHttpError, withProviderRetry } from "./retry";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com";
 
@@ -37,33 +37,41 @@ export class GoogleStyleProvider implements StyleAnalysisProvider {
       });
     }
 
-    const response = await withProviderRetry(
-      { attempts: 3, baseDelayMs: 1000, timeoutMs: input.timeoutMs },
-      (signal) =>
-        fetch(`${GOOGLE_BASE}/v1beta/models/${this.model}:generateContent`, {
-          method: "POST",
-          signal,
-          headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: input.systemPrompt }] },
-            contents: [{ role: "user", parts }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
-          }),
-        }),
-    ).catch((error: unknown) => {
+    try {
+      return await withProviderRetry(
+        { attempts: 3, baseDelayMs: 1000, timeoutMs: input.timeoutMs },
+        async (signal) => {
+          const response = await fetch(`${GOOGLE_BASE}/v1beta/models/${this.model}:generateContent`, {
+            method: "POST",
+            signal,
+            headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: input.systemPrompt }] },
+              contents: [{ role: "user", parts }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+            }),
+          });
+          const body = await response.text();
+          if (!response.ok) {
+            const retryAfter = response.headers.get("retry-after");
+            const retryAfterMs = retryAfter == null ? null : Number.isFinite(Number(retryAfter)) ? Number(retryAfter) * 1000 : null;
+            if (response.status === 408 || response.status === 429 || response.status >= 500) {
+              throw new RetryableHttpError(response.status, body, retryAfterMs);
+            }
+            throw classifyHttpError(response.status, body);
+          }
+          const data = JSON.parse(body) as {
+            candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          };
+          const rawText = data?.candidates?.[0]?.content?.parts?.find((part) => typeof part.text === "string")?.text ?? "";
+          if (!rawText) throw new StyleError("STYLE_ANALYSIS_FAILED", "No response content from Gemini");
+          return { schema: rawText, rawText };
+        },
+      );
+    } catch (error) {
+      if (error instanceof RetryableHttpError) throw classifyHttpError(error.status, error.body);
       if (error instanceof StyleError) throw error;
       throw new StyleError("STYLE_ANALYSIS_FAILED", `Google request error: ${error instanceof Error ? error.message : "network failure"}`);
-    });
-
-    if (!response.ok) {
-      throw classifyHttpError(response.status, await response.text().catch(() => ""));
     }
-
-    const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const rawText = data?.candidates?.[0]?.content?.parts?.find((part) => typeof part.text === "string")?.text ?? "";
-    if (!rawText) throw new StyleError("STYLE_ANALYSIS_FAILED", "No response content from Gemini");
-    return { schema: rawText, rawText };
   }
 }

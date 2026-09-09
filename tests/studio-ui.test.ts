@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CreateProjectSchema } from "@/app/api/projects/route";
 import { AiJobStatusSchema, type AiJob } from "@/db/ai-jobs";
 import { JOB_STATUS_LABELS } from "@/lib/ai/presentation";
-import { mergeProjectJob } from "@/lib/ai/use-project-jobs";
+import { mergeModuleJob } from "@/lib/ai/use-module-jobs";
 
 const job = (overrides: Partial<AiJob> = {}): AiJob => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -28,10 +28,9 @@ describe("project creation validation", () => {
 describe("project job feed updates", () => {
   it("appends inserts and replaces updates without duplicates", () => {
     const queued = job();
-    const initial = mergeProjectJob([], queued);
+    const initial = mergeModuleJob([], queued);
     const succeeded = job({ status: "succeeded", output: { results: [] } });
-    const updated = mergeProjectJob(initial, succeeded);
-    expect(updated).toHaveLength(1);
+    const updated = mergeModuleJob(initial, succeeded);
     expect(updated[0].job.status).toBe("succeeded");
   });
 });

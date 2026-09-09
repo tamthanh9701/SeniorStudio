@@ -14,6 +14,27 @@ vi.mock("../src/lib/ai/models", () => ({
 vi.mock("../src/lib/ai/credentials", () => ({
   getProviderApiKey: vi.fn(async () => "test-api-key"),
 }));
+vi.mock("../src/lib/ai/quota-reservation", () => ({
+  reserveImageQuota: vi.fn(async () => "reservation-id"),
+}));
+vi.mock("../src/lib/ai/execution-plan", () => ({
+  resolveImageExecutionPlan: vi.fn(async () => ({
+    operation: "image_to_image",
+    requestedModelId: "google/gemini-2.5-flash-image",
+    effectiveModelId: "google/gemini-2.5-flash-image",
+    provider: "google",
+    size: "1024x1024",
+    quality: "auto",
+    count: 1,
+    styleBudget: 1600,
+    referenceIds: [],
+    sourceVersionId: "66666666-6666-4666-8666-666666666666",
+    temperature: null,
+    modelChanged: false,
+    explanation: "requested",
+    supported: true,
+  })),
+}));
 vi.mock("../src/supabase/server", () => ({
   createClient: vi.fn(() => client),
   getServiceClient: vi.fn(() => serviceClient),
@@ -69,16 +90,25 @@ function jsonRequest(url: string, body?: unknown, method = "POST") {
   return new Request(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
 
-let client: Record<string, unknown>;
+interface MockClient {
+  auth: { getUser: () => Promise<{ data: { user: { id: string } | null } }> };
+  from: ReturnType<typeof vi.fn>;
+  rpc: ReturnType<typeof vi.fn>;
+}
+let client: MockClient;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn() };
+  client = {
+    auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) },
+    from: vi.fn(),
+    rpc: vi.fn(),
+  };
 });
 
 describe("GET /api/style/ai-jobs", () => {
   it("returns 401 when unauthenticated", async () => {
-    (client.auth as { getUser: ReturnType<typeof vi.fn> }).getUser.mockResolvedValue({ data: { user: null } });
+    (client.auth as { getUser: () => Promise<{ data: { user: null } }> }).getUser = vi.fn(async () => ({ data: { user: null } }));
     const response = await GET(new Request("http://localhost/api/style/ai-jobs"));
     expect(response.status).toBe(401);
   });
@@ -99,7 +129,8 @@ describe("POST /api/style/ai-jobs", () => {
   const validPayload = {
     model: "google/gemini-2.5-flash-image",
     styleId: "55555555-5555-4555-8555-555555555555",
-    sourceUrl: "https://example.com/source.png",
+    sourceVersionId: "66666666-6666-4666-8666-666666666666",
+    consent: { effectiveModelId: "google/gemini-2.5-flash-image", referenceIds: [], styleBudget: 1600, temperature: null, modelChanged: false },
   };
 
   it("rejects invalid payloads with 400", async () => {
@@ -112,17 +143,15 @@ describe("POST /api/style/ai-jobs", () => {
   it("enqueues with p_module=style, p_project_id=null and p_style_id", async () => {
     (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
       if (table === "workspace_members") return builder({ data: { workspace_id: "ws-1" }, error: null });
+      if (table === "asset_versions") return builder({ data: { id: validPayload.sourceVersionId, assets: { id: "asset-1", style_id: validPayload.styleId } }, error: null });
       return builder({ data: null, error: null });
     });
     (client.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({ data: jobRow, error: null });
-// Ready-state mock already returns "styled prompt"
     const response = await POST(jsonRequest("http://localhost/api/style/ai-jobs", validPayload));
     expect(response.status).toBe(202);
-    expect(client.rpc).toHaveBeenCalledWith("enqueue_ai_job", expect.objectContaining({
+    expect(client.rpc).toHaveBeenCalledWith("enqueue_image_to_image_job_v2", expect.objectContaining({
       p_workspace_id: "ws-1",
-      p_project_id: null,
       p_style_id: "55555555-5555-4555-8555-555555555555",
-      p_module: "style",
     }));
   });
 
@@ -131,7 +160,6 @@ describe("POST /api/style/ai-jobs", () => {
       if (table === "workspace_members") return builder({ data: null, error: null });
       return builder({ data: null, error: null });
     });
-// Ready-state mock already returns "styled prompt"
     const response = await POST(jsonRequest("http://localhost/api/style/ai-jobs", validPayload));
     expect(response.status).toBe(404);
   });

@@ -6,14 +6,8 @@ import { getEnv, requireAuth0Config } from "@/env";
 import { MCP_RESOURCE, MCP_RESOURCE_METADATA } from "@/lib/auth0/metadata";
 import { resolveMcpAuthContext, type McpIdentity } from "@/lib/mcp/identity";
 
-const REQUIRED_SCOPES = [
-  "openid",
-  "email",
-  "profile",
-  "assets:read",
-  "assets:write",
-  "projects:write",
-];
+import { MCP_SCOPES } from "@/lib/auth0/metadata";
+const REQUIRED_SCOPES = [...MCP_SCOPES];
 
 function unauthorized(message = "Unauthorized") {
   return Response.json(
@@ -68,6 +62,7 @@ async function verifySupabaseIdentity(
   return {
     subject: user.id,
     email: user.email,
+    emailVerified: user.email_confirmed_at != null,
     provider: "supabase",
   };
 }
@@ -101,6 +96,7 @@ async function verifyIdentity(token: string): Promise<{
         identity: {
           subject: claims.sub,
           email: email ?? getEnv().OWNER_EMAIL,
+          emailVerified: claims.email_verified === true,
           provider: "auth0",
         },
         clientId: claims.clientId,
@@ -139,20 +135,12 @@ export async function POST(request: NextRequest) {
   }
 
   const ownerEmail = getEnv().OWNER_EMAIL.trim().toLowerCase();
-  if (verified.identity.email.trim().toLowerCase() !== ownerEmail) {
-    console.warn("mcp_auth_rejected", {
-      stage: "owner_email",
-      provider: verified.identity.provider,
-    });
+  if (verified.identity.provider === "auth0" && verified.identity.email.trim().toLowerCase() !== ownerEmail) {
     return forbidden();
   }
 
   try {
     const context = await resolveMcpAuthContext(verified.identity);
-    console.info("mcp_workspace_resolved", {
-      provider: context.provider,
-      workspaceId: context.workspaceId,
-    });
     const authInfo: AuthInfo = {
       token: authHeader.slice(7),
       clientId: verified.clientId,
@@ -164,21 +152,14 @@ export async function POST(request: NextRequest) {
         workspaceId: context.workspaceId,
         email: context.email,
         provider: context.provider,
+        subject: context.subject,
+        scopes: verified.scopes,
       },
     };
     const server = createMcpServer();
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
-    const response = await transport.handleRequest(request, { authInfo });
-    console.info("mcp_response", {
-      method: request.method,
-      status: response.status,
-      contentType: response.headers.get("content-type"),
-    });
-    return response;
+    return await transport.handleRequest(request, { authInfo });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal error";

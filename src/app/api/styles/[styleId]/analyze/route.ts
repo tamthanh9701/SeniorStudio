@@ -6,6 +6,7 @@ import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { analyzeStyleProfile } from "@/lib/style/service";
 import { StyleError, styleErrorStatus } from "@/lib/style/errors";
+import { enforceAiQuota } from "@/lib/ai/quota";
 
 export const maxDuration = 180;
 
@@ -17,6 +18,8 @@ function flagDisabled() {
 
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return flagDisabled();
+  const quota = await enforceAiQuota(request, "brain");
+  if (!quota.ok) return quota.response;
   const { styleId } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -26,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
 
   try {
     const style = await analyzeStyleProfile({ styleId, userContext: parsed.data.userContext, client: supabase });
-    return NextResponse.json({ style });
+    return NextResponse.json({ style, schemaVersions: 1 });
   } catch (error) {
     if (error instanceof StyleError) {
       return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: styleErrorStatus(error.code) });

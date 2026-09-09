@@ -11,6 +11,7 @@ import ToolInspector, { type WorkspaceAsset } from "@/components/studio/ToolInsp
 import { AiJobSchema, isTerminalStatus, type ProjectJobFeedItem, type SupportedModelId } from "@/db/ai-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import { useModuleJobs } from "@/lib/ai/use-module-jobs";
+import type { CostMode } from "@/lib/style/cost-modes";
 
 export default function ProjectWorkspace({ project, projects, userEmail, assets, models, initialJobs, styleProfilesEnabled }: { project: { id: string; name: string }; projects: Array<{ id: string; name: string }>; userEmail: string; assets: WorkspaceAsset[]; models: ModelCatalogEntry[]; initialJobs: ProjectJobFeedItem[]; styleProfilesEnabled: boolean }) {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
   const [settings, setSettings] = useState<GenerationSettings>({ modelId: firstModel?.id ?? "", size: firstModel?.sizes[0] ?? "1024x1024", quality: firstModel?.qualities[0] ?? "auto", count: 1 });
   const [tool, setTool] = useState<"generate" | "inpaint" | "style">("generate");
   const [styleId, setStyleId] = useState<string | null>(null);
+  const [costMode, setCostMode] = useState<CostMode>("strict_1000");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
     const selectedModel = availableModels.find((model) => model.id === settings.modelId);
     if (!prompt.trim() || !selectedModel) return;
     setSubmitting(true); setError(null);
-    const response = await fetch(`/api/projects/${project.id}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "text_to_image", model: settings.modelId as SupportedModelId, prompt, count: settings.count, size: settings.size, quality: settings.quality, ...(styleId ? { styleId } : {}) }) });
+    const response = await fetch(`/api/projects/${project.id}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "text_to_image", model: settings.modelId as SupportedModelId, prompt, count: settings.count, size: settings.size, quality: settings.quality, costMode, ...(styleId ? { styleId } : {}) }) });
     const body = await response.json();
     const parsed = AiJobSchema.safeParse(body.job);
     if (response.ok && parsed.success) { addJob(parsed.data); setPrompt(""); setFocusSignal((value) => value + 1); }
@@ -61,7 +63,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
   const selectResult = ({ url }: { url: string; assetId?: string }) => { const index = canvasAssets.findIndex((asset) => asset.signedUrl === url); if (index >= 0) setSelectedIndex(index); };
   const inspector = <ToolInspector tool={tool} setTool={setTool} models={availableModels} settings={settings} setSettings={setSettings} selectedAsset={selectedAsset} projectId={project.id} styleId={styleId} setStyleId={setStyleId} styleProfilesEnabled={styleProfilesEnabled} styleHighlight={styleHighlight} />;
   const sidebar = <ProjectSidebar activeModule="playground" recentJobs={items} userEmail={userEmail} />;
-  const center = <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-y-auto"><AssetCanvas assets={canvasAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} projectId={project.id} onEmptyFocus={() => setFocusSignal((value) => value + 1)} loadingCount={activeJobCount} onDelete={(assetId) => { const asset = canvasAssets.find((a) => a.id === assetId); if (asset) setDeleteAssetTarget(asset); }} />{items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}</div><GenerationComposer prompt={prompt} setPrompt={setPrompt} settings={settings} selectedModel={availableModels.find((model) => model.id === settings.modelId)} submitting={submitting} error={error} onSubmit={submit} focusSignal={focusSignal} /></div>;
+  const center = <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-y-auto"><AssetCanvas assets={canvasAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} projectId={project.id} onEmptyFocus={() => setFocusSignal((value) => value + 1)} loadingCount={activeJobCount} onDelete={(assetId) => { const asset = canvasAssets.find((a) => a.id === assetId); if (asset) setDeleteAssetTarget(asset); }} />{items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}</div><GenerationComposer prompt={prompt} setPrompt={setPrompt} settings={settings} selectedModel={availableModels.find((model) => model.id === settings.modelId)} submitting={submitting} error={error} onSubmit={submit} focusSignal={focusSignal} styleId={styleId} costMode={costMode} setCostMode={setCostMode} /></div>;
   return <><StudioShell projects={projects} activeProjectId={project.id} userEmail={userEmail} recentJobs={items} leftSidebar={sidebar} center={center} inspector={inspector} />{deleteAssetTarget && (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="studio-card max-w-sm p-6">

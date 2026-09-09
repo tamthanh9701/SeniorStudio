@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { AiJobSchema, providerForModel, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { AiJobSchema, CostModeSchema, providerForModel, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { compileStyledPrompt } from "@/lib/style/service";
+import { resolveImageExecutionPlan } from "@/lib/ai/execution-plan";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { assertModelSupports } from "@/lib/ai/models";
 import { createClient, getServiceClient } from "@/supabase/server";
@@ -11,11 +12,14 @@ import { z } from "zod";
 const StyleJobSchema = z.object({
   model: z.string().min(1),
   styleId: z.string().uuid(),
-  sourceUrl: z.string().url(),
+  sourceVersionId: z.string().uuid(),
   prompt: z.string().trim().max(8000).optional(),
   count: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(1),
   size: z.enum(["1024x1024", "1536x1024", "1024x1536", "auto"]).default("1024x1024"),
   quality: z.enum(["low", "medium", "high", "auto"]).default("auto"),
+  costMode: CostModeSchema.default("strict_1000"),
+  requestedModelId: z.string().min(1).optional(),
+  consent: z.object({ effectiveModelId: z.string().min(1), referenceIds: z.array(z.string().uuid()), styleBudget: z.number(), temperature: z.number().nullable(), modelChanged: z.boolean() }).optional(),
 });
 
 export async function GET(request: Request) {
@@ -39,6 +43,15 @@ export async function GET(request: Request) {
   return NextResponse.json({ jobs });
 }
 
+function statusForError(message: string) {
+  if (message.includes("NOT_FOUND") || message.includes("STYLE_NOT_FOUND") || message.includes("SOURCE_NOT_FOUND")) return 404;
+  if (message.includes("PROVIDER_NOT_CONFIGURED")) return 503;
+  if (message.includes("quota_exceeded")) return 429;
+  if (message.includes("QUOTA_UNAVAILABLE")) return 503;
+  if (message.includes("STYLE_NOT_ACTIVE") || message.includes("VERSION_CONFLICT") || message.includes("PLAN_CONSENT_MISMATCH")) return 409;
+  return 400;
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -49,35 +62,51 @@ export async function POST(request: Request) {
 
   try {
     if (!styleProfilesEnabled()) throw new Error("INVALID_REQUEST");
-    const model = await assertModelSupports(parsed.data.model, "text_to_image");
-    if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient() }))) throw new Error("PROVIDER_NOT_CONFIGURED");
     const { data: member } = await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single();
     if (!member) throw new Error("NOT_FOUND");
+    const workspaceId = member.workspace_id;
+    const model = await assertModelSupports(parsed.data.model, "image_to_image", supabase, workspaceId);
+    if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient(), workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
 
-    const prompt = await compileStyledPrompt({ styleId: parsed.data.styleId, originalPrompt: parsed.data.prompt ?? "", client: supabase });
-    const { data: job, error } = await supabase.rpc("enqueue_ai_job", {
-      p_workspace_id: member.workspace_id,
-      p_project_id: null,
+    // Validate source belongs to this style
+    const { data: sourceAsset } = await supabase
+      .from("asset_versions")
+      .select("id, assets!inner(id, style_id)")
+      .eq("id", parsed.data.sourceVersionId)
+      .single();
+    if (!sourceAsset || (sourceAsset.assets as any).style_id !== parsed.data.styleId) {
+      throw new Error("SOURCE_NOT_FOUND");
+    }
+
+    if (!parsed.data.consent) throw new Error("PLAN_CONSENT_MISMATCH");
+    const plan = await resolveImageExecutionPlan(supabase, { operation: "image_to_image", requestedModelId: parsed.data.requestedModelId ?? parsed.data.model, styleId: parsed.data.styleId, sourceVersionId: parsed.data.sourceVersionId, costMode: parsed.data.costMode, count: parsed.data.count, size: parsed.data.size, quality: parsed.data.quality });
+    const consent = parsed.data.consent;
+    if (consent.effectiveModelId !== plan.effectiveModelId || consent.styleBudget !== plan.styleBudget || consent.temperature !== plan.temperature || consent.modelChanged !== plan.modelChanged || consent.referenceIds.join(",") !== plan.referenceIds.join(",")) {
+      throw new Error("PLAN_CONSENT_MISMATCH");
+    }
+    const prompt = await compileStyledPrompt({ styleId: parsed.data.styleId, originalPrompt: parsed.data.prompt ?? "", client: supabase, costMode: parsed.data.costMode });
+    const { data: job, error } = await supabase.rpc("enqueue_image_to_image_job_v2", {
+      p_workspace_id: workspaceId,
       p_requested_by: user.id,
-      p_operation: "text_to_image",
-      p_provider: providerForModel(parsed.data.model),
-      p_model: parsed.data.model,
+      p_provider: plan.provider,
+      p_model: plan.effectiveModelId,
       p_prompt: prompt,
-      p_count: parsed.data.count,
-      p_size: parsed.data.size,
-      p_quality: parsed.data.quality,
-      p_asset_id: null,
-      p_parent_version_id: null,
-      p_mask_storage_path: null,
+      p_count: plan.count,
+      p_size: plan.size,
+      p_quality: plan.quality,
       p_style_id: parsed.data.styleId,
+      p_source_version_id: parsed.data.sourceVersionId,
       p_original_prompt: parsed.data.prompt ?? null,
-      p_module: "style",
+      p_cost_mode: parsed.data.costMode,
+      p_requested_model_id: plan.requestedModelId,
+      p_reference_ids: plan.referenceIds,
+      p_temperature: null,
     });
     if (error) throw error;
     return NextResponse.json({ job }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const code = ["NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "STYLE_NOT_FOUND", "STYLE_NOT_ACTIVE"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
-    return NextResponse.json({ error: { code, message } }, { status: message.includes("NOT_FOUND") || message.includes("STYLE_NOT_FOUND") ? 404 : message.includes("PROVIDER_NOT_CONFIGURED") ? 503 : 400 });
+    const code = message.includes("PLAN_CONSENT_MISMATCH") ? "PLAN_CONSENT_MISMATCH" : ["NOT_FOUND", "SOURCE_NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "STYLE_NOT_FOUND", "STYLE_NOT_ACTIVE", "quota_exceeded", "QUOTA_UNAVAILABLE", "VERSION_CONFLICT"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
+    return NextResponse.json({ error: { code, message } }, { status: statusForError(message) });
   }
 }

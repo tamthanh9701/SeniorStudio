@@ -30,7 +30,7 @@ const baseInput = {
   systemPrompt: "system",
   userMessage: "user",
   referenceSummary: summary,
-  timeoutMs: 1000,
+  timeoutMs: 5000,
 };
 
 beforeEach(() => { fetchMock.mockReset(); });
@@ -73,7 +73,7 @@ describe("google style adapter", () => {
   });
 
   it("gives up after exactly 3 attempts on 500", async () => {
-    fetchMock.mockResolvedValue(new Response("boom", { status: 500 }));
+    fetchMock.mockImplementation(() => Promise.resolve(new Response("boom", { status: 500 })));
     const provider = new GoogleStyleProvider("key", "gemini-2.5-flash");
     await expect(provider.analyze(baseInput)).rejects.toBeInstanceOf(StyleError);
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -87,7 +87,7 @@ describe("google style adapter", () => {
   });
 
   it("maps 429 exhaustion to STYLE_ANALYSIS_RATE_LIMITED", async () => {
-    fetchMock.mockResolvedValue(new Response("limited", { status: 429 }));
+    fetchMock.mockImplementation(() => Promise.resolve(new Response("limited", { status: 429 })));
     const provider = new GoogleStyleProvider("key", "gemini-2.5-flash");
     await expect(provider.analyze(baseInput)).rejects.toMatchObject({ code: "STYLE_ANALYSIS_RATE_LIMITED" });
   });

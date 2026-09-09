@@ -37,22 +37,23 @@ function jsonRequest(url: string, body?: unknown, method = "POST") {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn() };
+  client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn(async () => ({ data: { id: "s1", status: "active" }, error: null })) };
 });
 
 describe("GET /api/styles", () => {
   it("returns 401 when unauthenticated", async () => {
     (client.auth as { getUser: ReturnType<typeof vi.fn> }).getUser.mockResolvedValue({ data: { user: null } });
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/styles"));
     expect(response.status).toBe(401);
   });
 
   it("maps reference counts into the lightweight list", async () => {
     (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
       select: vi.fn().mockReturnThis(),
-      order: vi.fn(async () => ({ data: [{ id: "s1", name: "A", status: "active", updated_at: "2026-01-01", style_references: [{ count: 3 }] }], error: null })),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn(async () => ({ data: [{ id: "s1", name: "A", status: "active", updated_at: "2026-01-01", library_id: null, style_references: [{ count: 3 }] }], error: null })),
     });
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/styles"));
     const body = await response.json();
     expect(body.styles[0]).toMatchObject({ id: "s1", referenceCount: 3 });
   });
@@ -76,9 +77,14 @@ describe("POST /api/styles", () => {
 });
 
 describe("PATCH /api/styles/[styleId]", () => {
-  it("rejects unknown fields with 400 (strict schema)", async () => {
-    const response = await patchStyle(jsonRequest("http://x", { schema: {} }, "PATCH"), { params: Promise.resolve({ styleId: "s1" }) });
-    expect(response.status).toBe(400);
+  it("accepts schema fields for manual editing", async () => {
+    (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === "styles") return builder({ data: { id: "s1", status: "draft", schema: { style_name: "Updated" } }, error: null });
+      if (table === "style_schema_versions") return builder({ data: [], error: null });
+      return builder({ data: null, error: null });
+    });
+    const response = await patchStyle(jsonRequest("http://x", { schema: { style_name: "Updated" } }, "PATCH"), { params: Promise.resolve({ styleId: "s1" }) });
+    expect(response.status).toBe(200);
   });
 
   it("enforces the activation gate: no analysis → STYLE_NOT_READY", async () => {
@@ -97,7 +103,7 @@ describe("PATCH /api/styles/[styleId]", () => {
     (client.from as ReturnType<typeof vi.fn>).mockImplementation(() => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: { style_name: "x" }, fingerprint: { v: 1 }, invariant_contract: { v: 1 }, analysis_meta: { analyzedAt: "2026-01-01" } } })),
+      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: { style_name: "x" }, fingerprint: { v: 1 }, invariant_contract: { v: 1 }, analysis_meta: { analyzedAt: "2026-01-01" }, operability: { grade: "production_ready" } } })),
       update: vi.fn().mockReturnThis(),
       single: vi.fn(async () => ({ data: { id: "s1", status: "active" }, error: null })),
     }));
@@ -118,7 +124,7 @@ describe("DELETE /api/styles/[styleId]", () => {
         };
       }
       if (table === "style_references") {
-        return { select: vi.fn().mockReturnThis(), eq: vi.fn(async () => ({ data: [{ storage_path: "ws/styles/s1/r1.png" }] })) };
+        return { select: vi.fn().mockReturnThis(), eq: vi.fn(async () => ({ data: [{ storage_path: "ws-1/styles/s1/r1.png" }] })) };
       }
       return {};
     });
@@ -126,7 +132,7 @@ describe("DELETE /api/styles/[styleId]", () => {
     serviceClient.storage.from.mockReturnValue({ remove });
     const response = await deleteStyle(new Request("http://x", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
     expect(response.status).toBe(200);
-    expect(remove).toHaveBeenCalledWith(["ws/styles/s1/r1.png"]);
+    expect(remove).toHaveBeenCalledWith(["ws-1/styles/s1/r1.png"]);
   });
 });
 

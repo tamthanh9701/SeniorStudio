@@ -6,6 +6,13 @@ import { ingestImage, getSignedUrl } from "@/lib/assets/service";
 import { registerMcpEditor } from "@/lib/mcp/editor";
 import { openAiFileSchema } from "@/lib/mcp/files";
 import { IMAGE_SAVE_WIDGET_HTML, IMAGE_SAVE_WIDGET_URI } from "@/lib/mcp/image-save-widget";
+import {
+  requireMcpAuthContext,
+  requireMcpScope,
+  requireProjectOwnership,
+  requireAssetOwnership,
+  requireVersionOwnership,
+} from "@/lib/mcp/auth";
 
 export function createMcpServer() {
   const server = new McpServer({
@@ -51,7 +58,10 @@ server.registerTool(
       "openai/toolInvocation/invoked": "Image saver ready.",
     },
   },
-  async ({ project_id, project_name, name, prompt, notes }) => {
+  async ({ project_id, project_name, name, prompt, notes }, extra) => {
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, "assets:write");
+    await requireProjectOwnership(getServiceClient(), ctx.workspaceId, project_id);
     const structuredContent = {
       mode: "generate" as const, project_id, project_name,
       name: name ?? null, prompt: prompt ?? null, notes: notes ?? null,
@@ -65,48 +75,23 @@ server.registerTool(
   {
     title: "Open edited image saver",
     description: "Open the SeniorStudio file picker after editing an image. The chosen file is saved as a child of the specified parent version.",
-    inputSchema: z.object({
-      asset_id: z.string().uuid(), parent_version_id: z.string().uuid(),
-      prompt: z.string().optional(), notes: z.string().optional(),
-    }),
-    outputSchema: z.object({
-      mode: z.literal("edit"), asset_id: z.string().uuid(), parent_version_id: z.string().uuid(),
-      prompt: z.string().nullable(), notes: z.string().nullable(),
-    }),
+    inputSchema: z.object({ asset_id: z.string().uuid(), parent_version_id: z.string().uuid(), prompt: z.string().optional(), notes: z.string().optional() }),
+    outputSchema: z.object({ mode: z.literal("edit"), asset_id: z.string().uuid(), parent_version_id: z.string().uuid(), prompt: z.string().nullable(), notes: z.string().nullable() }),
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-    _meta: {
-      ui: { resourceUri: IMAGE_SAVE_WIDGET_URI },
-      "openai/outputTemplate": IMAGE_SAVE_WIDGET_URI,
-      "openai/toolInvocation/invoking": "Opening edited image saver…",
-      "openai/toolInvocation/invoked": "Edited image saver ready.",
-    },
+    _meta: { ui: { resourceUri: IMAGE_SAVE_WIDGET_URI }, "openai/outputTemplate": IMAGE_SAVE_WIDGET_URI },
   },
-  async ({ asset_id, parent_version_id, prompt, notes }) => {
-    const structuredContent = {
-      mode: "edit" as const, asset_id, parent_version_id,
-      prompt: prompt ?? null, notes: notes ?? null,
-    };
+  async ({ asset_id, parent_version_id, prompt, notes }, extra) => {
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, "assets:write");
+    const client = getServiceClient();
+    const asset = await requireAssetOwnership(client, ctx.workspaceId, asset_id);
+    const parent = await requireVersionOwnership(client, ctx.workspaceId, parent_version_id);
+    if (parent.asset_id !== asset.id) throw new Error("NOT_FOUND");
+    const structuredContent = { mode: "edit" as const, asset_id, parent_version_id, prompt: prompt ?? null, notes: notes ?? null };
     return { structuredContent, content: [{ type: "text", text: "Choose the exact edited image file in the SeniorStudio saver." }] };
   }
 );
 
-// Helper to get workspace from claims
-async function getWorkspaceId(
-  userId: string,
-  workspaceId?: string
-) {
-  if (workspaceId) return workspaceId;
-
-  const serviceClient = getServiceClient();
-  const { data, error } = await serviceClient
-    .from("workspace_members")
-    .select("workspace_id")
-    .eq("supabase_user_id", userId)
-    .single();
-
-  if (error || !data) throw new Error("Workspace not found");
-  return data.workspace_id;
-}
 
 // Tool: create_project
 server.tool(
@@ -114,18 +99,13 @@ server.tool(
   "Create a new project",
   { name: z.string().min(1).max(100) },
   async ({ name }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
-    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'projects:write');
     const serviceClient = getServiceClient();
 
     const { data, error } = await serviceClient
       .from("projects")
-      .insert({ workspace_id: workspaceId, name })
+      .insert({ workspace_id: ctx.workspaceId, name })
       .select()
       .single();
 
@@ -140,19 +120,14 @@ server.tool(
   "List all projects",
   {},
   async (_, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
-    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
 
     const { data, error } = await serviceClient
       .from("projects")
       .select("*")
-      .eq("workspace_id", workspaceId)
+      .eq("workspace_id", ctx.workspaceId)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -170,13 +145,13 @@ server.tool(
     limit: z.number().min(1).max(50).default(20),
   },
   async ({ project_id, cursor, limit }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
+
+    // Verify project belongs to caller's workspace before listing
+    await requireProjectOwnership(serviceClient, ctx.workspaceId, project_id);
+
     let query = serviceClient
       .from("assets")
       .select("*")
@@ -211,13 +186,13 @@ server.tool(
   "Get asset details with current version",
   { asset_id: z.string().uuid() },
   async ({ asset_id }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
+
+    // Verify asset belongs to caller's workspace through project ownership
+    await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
+
     const { data: asset, error: assetError } = await serviceClient
       .from("assets")
       .select("*")
@@ -256,13 +231,13 @@ server.tool(
   "Get version history for an asset",
   { asset_id: z.string().uuid() },
   async ({ asset_id }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
+
+    // Verify asset belongs to caller's workspace through project ownership
+    await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
+
     const { data: versions, error } = await serviceClient
       .from("asset_versions")
       .select("*")
@@ -283,13 +258,13 @@ server.tool(
     version_id: z.string().uuid().optional(),
   },
   async ({ asset_id, version_id }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
+
+    // Verify asset belongs to caller's workspace through project ownership
+    await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
+
     const { data: asset, error: assetError } = await serviceClient
       .from("assets")
       .select("*")
@@ -360,18 +335,16 @@ server.registerTool(
     },
   },
   async ({ project_id, image, name, prompt, notes }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
-    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:write');
     const serviceClient = getServiceClient();
+
+    // Verify project belongs to caller's workspace
+    await requireProjectOwnership(serviceClient, ctx.workspaceId, project_id);
 
     const result = await ingestImage({
       client: serviceClient,
-      workspaceId,
+      workspaceId: ctx.workspaceId,
       projectId: project_id,
       fileUrl: image.download_url,
       source: "chatgpt",
@@ -418,25 +391,16 @@ server.registerTool(
     },
   },
   async ({ asset_id, parent_version_id, image, prompt, notes }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
-    const workspaceId = await getWorkspaceId(userId, auth?.extra?.workspaceId);
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:write');
     const serviceClient = getServiceClient();
 
-    const { data: asset, error: assetError } = await serviceClient
-      .from("assets")
-      .select("project_id")
-      .eq("id", asset_id)
-      .single();
-    if (assetError || !asset) throw new Error("NOT_FOUND");
+    // Verify asset belongs to caller's workspace through project ownership
+    const asset = await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
 
     const result = await ingestImage({
       client: serviceClient,
-      workspaceId,
+      workspaceId: ctx.workspaceId,
       projectId: asset.project_id,
       assetId: asset_id,
       parentVersionId: parent_version_id,
@@ -472,20 +436,12 @@ server.tool(
     format: z.literal("original").optional(),
   },
   async ({ version_id, format }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
-    const { data: version, error } = await serviceClient
-      .from("asset_versions")
-      .select("storage_path, mime_type")
-      .eq("id", version_id)
-      .single();
 
-    if (error) throw error;
+    // Verify version belongs to caller's workspace through asset→project ownership
+    const version = await requireVersionOwnership(serviceClient, ctx.workspaceId, version_id);
 
     const signedUrl = await getSignedUrl(serviceClient, version.storage_path);
 
@@ -514,13 +470,13 @@ server.tool(
     version_id: z.string().uuid().optional(),
   },
   async ({ asset_id, version_id }, extra) => {
-    const auth = extra.authInfo as
-      | { extra?: { userId?: string; workspaceId?: string } }
-      | undefined;
-    const userId = auth?.extra?.userId;
-    if (!userId) throw new Error("Unauthorized");
-
+    const ctx = requireMcpAuthContext(extra);
+    requireMcpScope(ctx, 'assets:read');
     const serviceClient = getServiceClient();
+
+    // Verify asset belongs to caller's workspace through project ownership
+    await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
+
     const { data: asset, error: assetError } = await serviceClient
       .from("assets")
       .select("*")

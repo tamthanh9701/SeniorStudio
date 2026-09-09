@@ -25,6 +25,31 @@ type ValidatedReference = {
 };
 
 type InvalidReference = { ok: false; response: NextResponse };
+async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  let active = 0;
+
+  return new Promise((resolve, reject) => {
+    const schedule = () => {
+      if (nextIndex >= items.length && active === 0) {
+        resolve(results);
+        return;
+      }
+      while (active < limit && nextIndex < items.length) {
+        const index = nextIndex++;
+        active += 1;
+        mapper(items[index], index).then((result) => {
+          results[index] = result;
+          active -= 1;
+          schedule();
+        }, reject);
+      }
+    };
+    schedule();
+  });
+}
+
 
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return flagDisabled();
@@ -43,14 +68,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       )
     : [];
   if (!files.length) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "No files uploaded" } }, { status: 400 });
-  const validated = await Promise.all(files.map(async (file): Promise<ValidatedReference | InvalidReference> => {
+  if (files.length > MAX_REFERENCES) {
+    return NextResponse.json({ error: { code: "TOO_MANY_REFERENCES", message: `A style supports at most ${MAX_REFERENCES} reference images` } }, { status: 400 });
+  }
+  for (const file of files) {
     const declaredMime = (file.type || "").split(";")[0].trim();
     if (!SUPPORTED_MIME.has(declaredMime)) {
-      return { ok: false, response: NextResponse.json({ error: { code: "UNSUPPORTED_IMAGE_TYPE", message: `Unsupported image type ${declaredMime || "unknown"}` } }, { status: 415 }) };
+      return NextResponse.json({ error: { code: "UNSUPPORTED_IMAGE_TYPE", message: `Unsupported image type ${declaredMime || "unknown"}` } }, { status: 415 });
     }
     if (file.size <= 0 || file.size > MAX_FILE_BYTES) {
-      return { ok: false, response: NextResponse.json({ error: { code: "REFERENCE_TOO_LARGE", message: "Each reference must be 1 byte to 5 MB" } }, { status: 413 }) };
+      return NextResponse.json({ error: { code: "REFERENCE_TOO_LARGE", message: "Each reference must be 1 byte to 5 MB" } }, { status: 413 });
     }
+  }
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > MAX_TOTAL_BYTES) {
+    return NextResponse.json({ error: { code: "REFERENCE_TOO_LARGE", message: "Upload exceeds the 20 MB total limit" } }, { status: 413 });
+  }
+  const { count: existing } = await supabase.from("style_references").select("id", { count: "exact", head: true }).eq("style_id", styleId);
+  if ((existing ?? 0) + files.length > MAX_REFERENCES) {
+    return NextResponse.json({ error: { code: "TOO_MANY_REFERENCES", message: `A style supports at most ${MAX_REFERENCES} reference images` } }, { status: 400 });
+  }
+  const validated = await mapWithConcurrency(files, 2, async (file): Promise<ValidatedReference | InvalidReference> => {
+    const declaredMime = (file.type || "").split(";")[0].trim();
     const bytes = new Uint8Array(await file.arrayBuffer());
     const metadata = await sharp(bytes, { failOn: "error" }).metadata().catch(() => null);
     const expectedFormat = declaredMime === "image/png" ? "png" : "jpeg";
@@ -60,17 +99,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     const contentHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
       .map((byte) => byte.toString(16).padStart(2, "0")).join("");
     return { ok: true, declaredMime, bytes, metadata, contentHash };
-  }));
+  });
   const validationFailure = validated.find((item) => !item.ok);
   if (validationFailure && !validationFailure.ok) return validationFailure.response;
-  const { count: existing } = await supabase.from("style_references").select("id", { count: "exact", head: true }).eq("style_id", styleId);
-  if ((existing ?? 0) + files.length > MAX_REFERENCES) {
-    return NextResponse.json({ error: { code: "TOO_MANY_REFERENCES", message: `A style supports at most ${MAX_REFERENCES} reference images` } }, { status: 400 });
-  }
-  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalBytes > MAX_TOTAL_BYTES) {
-    return NextResponse.json({ error: { code: "REFERENCE_TOO_LARGE", message: "Upload exceeds the 20 MB total limit" } }, { status: 413 });
-  }
+
 
   const service = getServiceClient();
   const inserted: Array<Record<string, unknown>> = [];

@@ -5,21 +5,26 @@ import { z } from "zod";
 import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 
-const CreateStyleSchema = z.object({ name: z.string().trim().min(1).max(100) });
+const GetStylesSchema = z.object({
+  libraryId: z.string().uuid().optional(),
+});
 
 function flagDisabled() {
   return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
 }
-
-export async function GET() {
+ export async function GET(request: Request) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
-  const { data, error } = await supabase
+  const params = GetStylesSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+  const libraryId = params.success ? params.data.libraryId : undefined;
+  const query = supabase
     .from("styles")
-    .select("id, name, status, created_at, updated_at, style_references(count)")
+    .select("id, name, status, created_at, updated_at, library_id, operability, style_references(count)")
     .order("updated_at", { ascending: false });
+  if (libraryId) query.eq("library_id", libraryId);
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: { code: "LOAD_FAILED", message: "Unable to load styles" } }, { status: 500 });
   const styles = (data ?? []).map((row) => ({
     id: row.id,
@@ -27,11 +32,16 @@ export async function GET() {
     status: row.status,
     referenceCount: row.style_references?.[0]?.count ?? 0,
     updatedAt: row.updated_at,
+    libraryId: row.library_id,
+    operability: row.operability,
   }));
   return NextResponse.json({ styles });
 }
-
-export async function POST(request: Request) {
+const CreateStyleSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  libraryId: z.string().uuid().nullable().optional(),
+});
+ export async function POST(request: Request) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -42,10 +52,10 @@ export async function POST(request: Request) {
   if (!member) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Workspace not found" } }, { status: 404 });
   const { data: style, error } = await supabase
     .from("styles")
-    .insert({ workspace_id: member.workspace_id, name: parsed.data.name })
-    .select("id, name, status, created_at, updated_at")
+    .insert({ workspace_id: member.workspace_id, name: parsed.data.name, library_id: parsed.data.libraryId ?? null })
+    .select("id, name, status, created_at, updated_at, library_id")
     .single();
   if (error) return NextResponse.json({ error: { code: "CREATE_FAILED", message: error.message } }, { status: 500 });
-  return NextResponse.json({ style: { ...style, referenceCount: 0 } }, { status: 201 });
+  return NextResponse.json({ style: { ...style, referenceCount: 0, libraryId: style.library_id } }, { status: 201 });
 }
 

@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getServiceClient } from "@/supabase/server";
+import { requireMcpAuthContext, requireMcpScope, requireAssetOwnership } from "@/lib/mcp/auth";
 
 export function registerMcpEditor(server: McpServer) {
   server.resource(
@@ -67,8 +69,12 @@ export function registerMcpEditor(server: McpServer) {
       version_id: z.string().uuid().optional(),
     },
     async ({ asset_id, version_id }, extra) => {
-      const userId = extra.authInfo?.extra?.userId;
-      if (typeof userId !== "string") throw new Error("Unauthorized");
+      const ctx = requireMcpAuthContext(extra);
+      requireMcpScope(ctx, 'assets:read');
+      const serviceClient = getServiceClient();
+
+      // Verify asset belongs to caller's workspace through project ownership
+      await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
 
       const query = version_id ? `?version=${version_id}` : "";
       const editorUrl =

@@ -1,0 +1,24 @@
+name: staging-verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: seniorstudio-staging
+  cancel-in-progress: false
+jobs:
+  verify:
+    environment: seniorstudio-staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.28.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsx scripts/verify-staging-target.ts
+      - run: pnpm exec tsx scripts/apply-staging-migrations.ts UPGRADE
+        env:
+          ALLOW_STAGING_MIGRATIONS: "1"
+      - run: RUN_DB_INTEGRATION=1 pnpm exec vitest run tests/integration/runtime-contracts.test.ts tests/integration/runtime-concurrency.test.ts
