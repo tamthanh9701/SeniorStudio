@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   const { data: heartbeat } = await supabase
     .from("service_heartbeats")
     .select("last_seen_at")
-    .eq("service", "vercel-daily")
+    .eq("service", "ai_worker")
     .single();
 
   const { data: projects } = await supabase.from("projects").select("id, name").order("created_at", { ascending: false });

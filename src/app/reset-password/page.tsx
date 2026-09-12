@@ -52,19 +52,17 @@ export default function ResetPasswordPage() {
 
   if (checking) {
     return (
-      <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(124,92,255,.22),transparent_38%)]" />
-        <LoaderCircle className="size-6 animate-spin text-[#7c5cff]" />
+      <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--canvas)] px-4 py-10 text-[var(--text)] sm:px-6">
+        <LoaderCircle className="size-6 animate-spin text-[var(--accent)]" />
       </main>
     );
   }
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(124,92,255,.22),transparent_38%)]" />
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--canvas)] px-4 py-10 text-[var(--text)] sm:px-6">
       <section className="studio-card relative w-full max-w-md p-6 sm:p-8">
         <div className="mb-8 flex flex-col items-center text-center">
-          <span className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-[#7c5cff]"><Sparkles className="size-6" /></span>
+          <span className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-[var(--accent)] text-white"><Sparkles className="size-6" /></span>
           <h1 className="text-2xl font-semibold tracking-tight">Set a new password</h1>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -85,9 +83,7 @@ export default function ResetPasswordPage() {
               {submitting ? "Updating…" : "Update password"}
             </button>
           )}
-          {message && <div role={message.kind === "error" ? "alert" : "status"} aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm ${message.kind === "success" ? "border-[#35c48d]/30 bg-[#35c48d]/10 text-[#7ee2bc]" : "border-[#ef6262]/30 bg-[#ef6262]/10 text-[#ff9b9b]"}`}>
-            <span className="flex gap-2">{message.kind === "success" && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}{message.text}</span>
-          </div>}
+          {message && <div role={message.kind === "error" ? "alert" : "status"} aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm ${message.kind === "success" ? "border-[color-mix(in_srgb,var(--success)_30%,transparent)] bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]" : "border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]"}`}><span className="flex gap-2">{message.kind === "success" && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}{message.text}</span></div>}
         </form>
       </section>
     </main>

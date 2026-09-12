@@ -7,7 +7,7 @@ import { getProviderApiKey } from "@/lib/ai/credentials";
 import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types";
 import { ProviderError } from "@/lib/ai/providers/types";
 import { STORAGE_BUCKET } from "@/db/schema";
-
+import { getOwnedAssetVersion, getOwnedJobMask, getOwnedStyleReference, downloadOwnedBytes, removeOwnedObjects, ownedStorageObjectFromPath } from "@/lib/assets/ownership";
 const MAX_BYTES = 50 * 1024 * 1024;
 const MAX_PIXELS = 100_000_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -51,14 +51,14 @@ async function providerBytes(image: ProviderImage) {
   if (!type.startsWith("image/")) throw new ProviderError("UNSUPPORTED_IMAGE", "Provider result was not an image");
   return boundedResponseBytes(response, "Provider result");
 }
-
 async function cleanMask(client: SupabaseClient, job: AiJob) {
-  const path = job.input.mask_storage_path;
-  if (!path) return;
-  await client.storage.from(STORAGE_BUCKET).remove([path]);
-  await client.from("ai_job_inputs").delete().eq("storage_path", path);
+  if (!job.input.mask_id && !job.input.mask_storage_path) return;
+  if (job.module === "style" && job.status === "succeeded") return;
+  const owned = await getOwnedJobMask(client, job.workspace_id, job.id);
+  await removeOwnedObjects(client, [owned.owned]);
+  const { error } = await client.from("ai_job_inputs").delete().eq("id", owned.mask.id);
+  if (error) throw error;
 }
-
 async function renew(client: SupabaseClient, job: AiJob, workerId: string) {
   const { error } = await client.rpc("renew_ai_job_lease", { p_job_id: job.id, p_worker_id: workerId, p_lease_seconds: 120 });
   if (error) throw error;
@@ -122,11 +122,13 @@ async function persistJobImages(
       const bytes = await providerBytes(image);
       const decoded = await prepareImageBytes(bytes);
       if (decoded.bytes.byteLength > MAX_BYTES || decoded.width * decoded.height > MAX_PIXELS) throw new ProviderError("FILE_TOO_LARGE", "Provider result exceeds image limits");
-      const assetId = job.operation === "inpaint" ? job.asset_id : crypto.randomUUID();
+      const isStyleJob = job.module === "style";
+      const assetId = isStyleJob || job.operation !== "inpaint" ? crypto.randomUUID() : job.asset_id;
       const versionId = crypto.randomUUID();
       if (!assetId) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "Inpaint job has no asset");
-      if (job.module === "style" && !job.input.style_id) throw new ProviderError("INVALID_REQUEST", "Style job has no style_id");
-      const storagePath = job.module === "style" ? `${job.workspace_id}/styles/${job.input.style_id}/outputs/${assetId}/${versionId}/source.${decoded.extension}` : `${job.workspace_id}/${job.project_id ?? ""}/${assetId}/${versionId}/source.${decoded.extension}`;
+      if (isStyleJob && !job.style_id) throw new ProviderError("INVALID_REQUEST", "Style job has no style_id");
+      const styleId = job.style_id ?? job.input.style_id;
+      const storagePath = isStyleJob ? `${job.workspace_id}/styles/${styleId}/outputs/${assetId}/${versionId}/source.${decoded.extension}` : `${job.workspace_id}/${job.project_id ?? ""}/${assetId}/${versionId}/source.${decoded.extension}`;
       const { error: uploadError } = await client.storage.from(STORAGE_BUCKET).upload(storagePath, decoded.bytes, { contentType: decoded.mimeType, upsert: false });
       if (uploadError) throw uploadError;
       uploadedPaths.push(storagePath);
@@ -164,13 +166,11 @@ async function persistJobImages(
 type InputImage = { role: "source" | "reference"; id: string; bytes: Uint8Array; mimeType: string };
 
 async function downloadStorageBytes(client: SupabaseClient, storagePath: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
-  const { data, error } = await client.storage.from(STORAGE_BUCKET).download(storagePath);
-  if (error || !data) throw new ProviderError("FILE_UNAVAILABLE", `Could not download: ${storagePath}`);
-  const bytes = new Uint8Array(await data.arrayBuffer());
-  if (bytes.byteLength > MAX_BYTES) throw new ProviderError("FILE_TOO_LARGE", "Input exceeds 50 MiB");
-  const decoded = await prepareImageBytes(bytes);
+  const owned = ownedStorageObjectFromPath(storagePath);
+  const result = await downloadOwnedBytes(client, owned);
+  const decoded = await prepareImageBytes(result.bytes);
   if (decoded.width * decoded.height > MAX_PIXELS) throw new ProviderError("FILE_TOO_LARGE", "Input exceeds pixel limit");
-  return { bytes, mimeType: decoded.mimeType };
+  return { bytes: result.bytes, mimeType: decoded.mimeType };
 }
 
 async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<{ inputImages: InputImage[]; maskBytes?: Uint8Array }> {
@@ -179,17 +179,21 @@ async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<{
   if (job.operation === "image_to_image" || job.operation === "inpaint") {
     const sourceVersionId = job.operation === "inpaint" ? job.parent_version_id : job.source_version_id;
     if (!sourceVersionId) throw new ProviderError("INVALID_REQUEST", `${job.operation} requires a source version`);
-    const { data: version, error } = await client.from("asset_versions").select("storage_path").eq("id", sourceVersionId).single();
-    if (error || !version) throw new ProviderError("NOT_FOUND", "Source version not found");
-    inputImages.push({ role: "source", id: sourceVersionId, ...(await downloadStorageBytes(client, version.storage_path)) });
+    const { data: source, error } = await client.from("asset_versions").select("asset_id").eq("id", sourceVersionId).single();
+    if (error || !source) throw new ProviderError("NOT_FOUND", "Source version not found");
+    const owned = await getOwnedAssetVersion(client, job.workspace_id, source.asset_id, sourceVersionId);
+    inputImages.push({ role: "source", id: sourceVersionId, ...(await downloadOwnedBytes(client, owned.owned)) });
   }
   const referenceIds = job.input.reference_ids ?? [];
-  if (referenceIds.length) {
-    const { data: refs, error } = await client.from("style_references").select("id, storage_path").in("id", referenceIds);
-    if (error || (refs?.length ?? 0) !== referenceIds.length) throw new ProviderError("NOT_FOUND", "Could not load style references");
-    for (const ref of refs ?? []) inputImages.push({ role: "reference", id: ref.id, ...(await downloadStorageBytes(client, ref.storage_path)) });
+  for (const referenceId of referenceIds) {
+    if (!job.style_id) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
+    const owned = await getOwnedStyleReference(client, job.workspace_id, job.style_id, referenceId);
+    inputImages.push({ role: "reference", id: referenceId, ...(await downloadOwnedBytes(client, owned.owned)) });
   }
-  if (job.operation === "inpaint" && job.input.mask_storage_path) maskBytes = (await downloadStorageBytes(client, job.input.mask_storage_path)).bytes;
+  if (job.operation === "inpaint" && (job.input.mask_id || job.input.mask_storage_path)) {
+    const owned = await getOwnedJobMask(client, job.workspace_id, job.id);
+    maskBytes = (await downloadOwnedBytes(client, owned.owned)).bytes;
+  }
   return { inputImages, maskBytes };
 }
 
@@ -239,7 +243,7 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
         return "processing";
       }
       await withLeaseHeartbeat(client, job, workerId, () => persistJobImages(client, job, workerId, { state: "completed", images: result.images, requestId: job.provider_request_id, metadata: result.metadata }, result.providerStatus));
-      await cleanMask(client, job);
+      if (job.module !== "style") await cleanMask(client, job);
       return "succeeded";
     }
     const { error: beginError } = await client.rpc("begin_ai_job_provider", { p_job_id: job.id, p_worker_id: workerId });
@@ -255,7 +259,7 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
       return "processing";
     }
     await withLeaseHeartbeat(client, job, workerId, () => persistJobImages(client, job, workerId, submission, "COMPLETED"));
-    await cleanMask(client, job);
+    if (job.module !== "style") await cleanMask(client, job);
     return "succeeded";
   } catch (error) {
     const message = normalizeErrorMessage(error);

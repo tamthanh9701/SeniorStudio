@@ -68,18 +68,19 @@ export default function StylePanel() {
 
   const [libraries, setLibraries] = useState<LibraryItem[]>([]);
   const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null); // null = All
-
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft">("all");
   const [stylesLoading, setStylesLoading] = useState(true);
   const loadStyles = useCallback(async (libraryId: string | null = null) => {
+    setStylesLoading(true);
     try {
-      // If libraryId is null, fetch all styles (unfiltered)
-      // Otherwise filter by libraryId
       const query = libraryId === null ? "" : `?libraryId=${libraryId}`;
       const response = await fetch(`/api/styles${query}`, { cache: "no-store" });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Unable to load style groups");
       const body = await response.json();
       setStyles(Array.isArray(body.styles) ? body.styles : []);
-      return body.styles as StyleListItem[];
+    } catch {
+      setFeedback({ kind: "error", text: "Unable to load style groups. Try again." });
     } finally {
       setStylesLoading(false);
     }
@@ -112,50 +113,49 @@ export default function StylePanel() {
 
   const create = async () => {
     const name = newName.trim();
-    if (!name) return;
-    const response = await fetch("/api/styles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, libraryId: activeLibraryId }) });
-    const body = await response.json().catch(() => ({}));
-    if (response.ok) {
-      setNewName("");
-      const created = body.style as StyleListItem;
-      const current = await loadStyles(activeLibraryId);
-    } else {
-      setFeedback({ kind: "error", text: `${body.error?.code ?? "CREATE_FAILED"}: ${body.error?.message ?? "Unable to create style"}` });
-    }
-    setBusy(null);
+    if (!name || busy !== null) return;
+    setBusy("create"); setFeedback(null);
+    try {
+      const response = await fetch("/api/styles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, libraryId: activeLibraryId }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`${body.error?.code ?? "CREATE_FAILED"}: ${body.error?.message ?? "Unable to create style"}`);
+      setNewName(""); await loadStyles(activeLibraryId);
+    } catch (error) { setFeedback({ kind: "error", text: error instanceof Error ? error.message : "Unable to create style" }); }
+    finally { setBusy(null); }
   };
 
   const uploadReferences = async (styleId: string, files: FileList) => {
     setBusy("upload"); setFeedback(null);
-    const form = new FormData();
-    for (const file of [...files]) form.append("files", file);
-    const response = await fetch(`/api/styles/${styleId}/references`, { method: "POST", body: form });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) setFeedback({ kind: "error", text: `${body.error?.code ?? "UPLOAD_FAILED"}: ${body.error?.message ?? "Upload failed"}` });
-    await loadDetail(styleId);
-    await loadStyles(activeLibraryId);
-    setBusy(null);
+    try {
+      const form = new FormData();
+      for (const file of [...files]) form.append("files", file);
+      const response = await fetch(`/api/styles/${styleId}/references`, { method: "POST", body: form });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`${body.error?.code ?? "UPLOAD_FAILED"}: ${body.error?.message ?? "Upload failed"}`);
+      await loadDetail(styleId); await loadStyles(activeLibraryId);
+    } catch (error) { setFeedback({ kind: "error", text: error instanceof Error ? error.message : "Upload failed" }); }
+    finally { setBusy(null); }
   };
 
   const removeReference = async (styleId: string, referenceId: string) => {
     setBusy(referenceId); setFeedback(null);
-    const response = await fetch(`/api/styles/${styleId}/references/${referenceId}`, { method: "DELETE" });
-    if (!response.ok) setFeedback({ kind: "error", text: "Unable to remove reference." });
-    await loadDetail(styleId);
-    await loadStyles(activeLibraryId);
-    setBusy(null);
+    try {
+      const response = await fetch(`/api/styles/${styleId}/references/${referenceId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Unable to remove reference.");
+      await loadDetail(styleId); await loadStyles(activeLibraryId);
+    } catch (error) { setFeedback({ kind: "error", text: error instanceof Error ? error.message : "Unable to remove reference." }); }
+    finally { setBusy(null); }
   };
 
   const analyze = async (styleId: string) => {
     setBusy("analyze"); setFeedback(null);
-    const response = await fetch(`/api/styles/${styleId}/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setFeedback({ kind: "error", text: `${body.error?.code ?? "STYLE_ANALYSIS_FAILED"}: ${body.error?.message ?? "Analysis failed; references kept"}` });
-    }
-    await loadDetail(styleId);
-    await loadStyles(activeLibraryId);
-    setBusy(null);
+    try {
+      const response = await fetch(`/api/styles/${styleId}/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`${body.error?.code ?? "STYLE_ANALYSIS_FAILED"}: ${body.error?.message ?? "Analysis failed; references kept"}`);
+      await loadDetail(styleId); await loadStyles(activeLibraryId);
+    } catch (error) { setFeedback({ kind: "error", text: error instanceof Error ? error.message : "Analysis failed; references kept" }); }
+    finally { setBusy(null); }
   };
 
   const activate = async (styleId: string) => {
@@ -190,33 +190,28 @@ export default function StylePanel() {
   const analyzed = Boolean(detail?.analysis_meta && (detail.analysis_meta as Record<string, unknown>).analyzedAt);
   const canActivate = analyzed && (detail?.operability?.grade === "production_ready" || detail?.operability?.grade === "usable_with_warnings");
 
-  return <div className="space-y-3">
-    <div className="flex gap-2">
-      <input value={newName} onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create(); }} placeholder="New style name" aria-label="New style name" className="studio-control min-w-0 flex-1" />
-      <button onClick={() => void create()} disabled={!newName.trim() || busy !== null} aria-label="Create style" className="studio-button-primary shrink-0">{busy === "create" ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}</button>
+  return <div className="space-y-4 text-[var(--text)]">
+    <div className="flex flex-col gap-3 sm:flex-row">
+      <input value={newName} onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create(); }} placeholder="Name your style group" aria-label="New style name" className="studio-control min-w-0 flex-1" />
+      <button onClick={() => void create()} disabled={!newName.trim() || busy !== null} aria-label="Create style" className="studio-button-primary shrink-0">{busy === "create" ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Create style</button>
     </div>
-    {feedback && <p role="alert" className={`text-sm ${feedback.kind === "error" ? "text-[#ff9b9b]" : "text-[#66d7ae]"}`}>{feedback.text}</p>}
-    {libraries.length > 0 && <div className="flex gap-1 overflow-x-auto pb-2">
-      <button onClick={() => setActiveLibraryId(null)} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${activeLibraryId === null ? "bg-white/10 text-white" : "text-[#98a2b3] hover:text-white"}`}>All</button>
-      {libraries.map((lib) => <button key={lib.id} onClick={() => setActiveLibraryId(lib.id)} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${activeLibraryId === lib.id ? "bg-white/10 text-white" : "text-[#98a2b3] hover:text-white"}`}>{lib.name}</button>)}
-    </div>}
-    {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2">
-      <div className="h-16 animate-pulse rounded-xl bg-white/[0.04]" />
-      <div className="h-16 animate-pulse rounded-xl bg-white/[0.04]" />
-      <div className="h-16 animate-pulse rounded-xl bg-white/[0.04]" />
-    </div>}
-    {!stylesLoading && styles.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-4 text-center text-sm text-[#98a2b3]">No styles yet. Upload reference images to capture a reusable visual style.</p>}
-    {styles.map((style) => {
+    {feedback && <p role="alert" className={`text-sm ${feedback.kind === "error" ? "text-[var(--danger)]" : "text-[var(--success)]"}`}>{feedback.text}</p>}
+    <div className="flex flex-col gap-3 sm:flex-row"><input className="studio-control" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search style groups" aria-label="Search style groups" /><select className="studio-control sm:max-w-40" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "draft")} aria-label="Filter style groups"><option value="all">All statuses</option><option value="active">Active</option><option value="draft">Drafts</option></select></div>
+    {libraries.length > 0 && <div className="flex gap-1 overflow-x-auto pb-2"><button onClick={() => setActiveLibraryId(null)} aria-pressed={activeLibraryId === null} className={`shrink-0 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${activeLibraryId === null ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}>All libraries</button>{libraries.map((lib) => <button key={lib.id} onClick={() => setActiveLibraryId(lib.id)} aria-pressed={activeLibraryId === lib.id} className={`shrink-0 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${activeLibraryId === lib.id ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}>{lib.name}</button>)}</div>}
+    {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2"><div className="h-16 animate-pulse rounded-xl bg-[var(--surface-hover)]" /><div className="h-16 animate-pulse rounded-xl bg-[var(--surface-hover)]" /><div className="h-16 animate-pulse rounded-xl bg-[var(--surface-hover)]" /></div>}
+    {!stylesLoading && styles.filter((style) => (statusFilter === "all" || style.status === statusFilter) && style.name.toLowerCase().includes(query.trim().toLowerCase())).length === 0 && <p className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">No matching style groups.</p>}
+    {styles.filter((style) => (statusFilter === "all" || style.status === statusFilter) && style.name.toLowerCase().includes(query.trim().toLowerCase())).map((style) => {
       const expanded = expandedId === style.id;
-      return <section key={style.id} className="rounded-2xl border border-white/10 bg-white/[0.025]">
-        <button onClick={() => void expand(style.id)} aria-expanded={expanded} className="flex w-full items-center justify-between gap-3 p-4 text-left">
-          <span className="min-w-0">
-            <span className="flex items-center gap-2 font-medium"><span aria-hidden className={style.status === "active" ? "text-[#66d7ae]" : "text-[#667085]"}>{style.status === "active" ? "● Active" : "○ Draft"}</span><span className="truncate">{style.name}</span></span>
-            <span className="mt-1 block text-xs text-[#667085]">{style.referenceCount}/8 refs{style.operability?.score !== undefined ? ` · ${style.operability.grade} ${style.operability.score}/100` : ""} · updated {new Date(style.updatedAt).toLocaleString()}</span>
-          </span>
-        </button>
+      return <section key={style.id} className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
+        <div className="flex items-center gap-3 p-4 hover:bg-[var(--surface-hover)]">
+          <button onClick={() => void expand(style.id)} aria-expanded={expanded} className="min-w-0 flex-1 text-left">
+            <span className="flex items-center gap-2 font-medium"><span aria-hidden className={style.status === "active" ? "text-[var(--success)]" : "text-[var(--muted)]"}>{style.status === "active" ? "● Active" : "○ Draft"}</span><span className="truncate">{style.name}</span></span>
+            <span className="mt-1 block text-xs text-[var(--muted)]">{style.referenceCount}/8 references{style.operability?.score !== undefined ? ` · ${style.operability.grade} ${style.operability.score}/100` : ""} · updated {new Date(style.updatedAt).toLocaleString()}</span>
+          </button>
+          <a href={`/style/${style.id}`} className="studio-button-secondary shrink-0 px-3 text-xs">Open group</a>
+        </div>
         {expanded && (
-          detail && detail.id === style.id ? <div className="space-y-3 border-t border-white/10 p-4">
+          detail && detail.id === style.id ? <div className="space-y-3 border-t border-[var(--border)] p-4">
             <div>
               <p className="studio-label">References ({detail.references?.length ?? 0}/8)</p>
               {(detail.references?.length ?? 0) > 0 && <ul className="mt-2 grid grid-cols-3 gap-2">
@@ -226,7 +221,7 @@ export default function StylePanel() {
                   <button onClick={() => void removeReference(style.id, reference.id)} disabled={busy !== null} aria-label={`Remove reference ${reference.id}`} className="absolute right-1 top-1 flex size-7 items-center justify-center rounded-md bg-black/70 text-white opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"><Trash2 className="size-3.5" /></button>
                 </li>)}
               </ul>}
-              <label className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 p-2.5 text-xs text-[#98a2b3] hover:text-white">
+              <label className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] p-2.5 text-xs text-[var(--muted)] hover:text-[var(--text)]">
                 <Upload className="size-3.5" /> Add PNG/JPEG references (≤5 MB each)
                 <input type="file" multiple accept="image/png,image/jpeg" className="sr-only" disabled={busy !== null} onChange={(event) => { if (event.target.files?.length) void uploadReferences(style.id, event.target.files); event.target.value = ""; }} />
               </label>
@@ -247,7 +242,7 @@ export default function StylePanel() {
               <p className="font-medium text-[#d0d5dd]">{detail.operability.grade === "production_ready" ? "Green" : detail.operability.grade === "usable_with_warnings" ? "Amber" : "Red"} · {detail.operability.grade} ({detail.operability.score}/100)</p>
               <ul className="mt-2 space-y-1 text-[#98a2b3]">{detail.operability.checks.map((check) => <li key={check.id}>{check.status}: {check.label} — {check.detail}</li>)}</ul>
             </div>}
-            {detail.clarification_questions && detail.clarification_questions.questions.length > 0 && <ClarificationForm styleId={style.id} questions={detail.clarification_questions} onValidated={() => loadDetail(style.id)} />}
+            {detail.clarification_questions && detail.clarification_questions.questions.length > 0 && <ClarificationForm styleId={style.id} expectedUpdatedAt={detail.updated_at} questions={detail.clarification_questions} onUpdated={() => loadDetail(style.id)} />}
             {detail.schema && detail.status === "draft" && <details className="rounded-xl border border-white/10 bg-white/[0.025] p-3"><summary className="cursor-pointer font-medium text-[#d0d5dd]">Edit Schema</summary><div className="mt-4"><SchemaEditor styleId={style.id} schema={detail.schema} onSaved={() => loadDetail(style.id)} /></div></details>}
             {detail.schemaVersions && detail.schemaVersions.length > 1 && <button type="button" className="studio-button-secondary w-full" disabled={busy !== null} onClick={() => void rollback(style.id, detail.schemaVersions![1].schema)}>Rollback to previous version</button>}
             <div className="flex gap-2">

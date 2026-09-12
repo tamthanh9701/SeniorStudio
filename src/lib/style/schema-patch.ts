@@ -1,3 +1,5 @@
+import { createEmptyPrompt } from './prompt-schema';
+
 export type StyleSchemaPatchOp = 'replace' | 'set' | 'append' | 'remove';
 
 export interface StyleSchemaPatch {
@@ -16,25 +18,10 @@ export interface StyleSchemaPatchValidationResult {
 
 type UnknownRecord = Record<string, unknown>;
 
-const ALLOWED_ROOT_PATHS = new Set([
-  'style_name',
-  'subject_type',
-  'subject',
-  'subject_object',
-  'composition',
-  'environment',
-  'lighting',
-  'color_palette',
-  'artistic_style',
-  'mood_atmosphere',
-  'material_texture',
-  'technical_quality',
-  'negative_prompt',
-  'post_processing',
-  'generation_params',
-]);
-
-const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+const PROMPT_SCHEMA_SHAPE = createEmptyPrompt() as unknown as UnknownRecord;
+const ALLOWED_ROOT_PATHS: Record<string, true> = Object.fromEntries(
+  Object.keys(PROMPT_SCHEMA_SHAPE).map((key) => [key, true]),
+);
 
 function isRecord(value: unknown): value is UnknownRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -55,12 +42,21 @@ function isJsonSafe(value: unknown): boolean {
 function assertAllowedPath(path: string) {
   const segments = path.split('.');
   const root = segments[0];
-  if (!ALLOWED_ROOT_PATHS.has(root)) {
+  if (!ALLOWED_ROOT_PATHS[root]) {
     throw new Error(`Path root '${root}' is not allowed.`);
   }
-  for (const seg of segments) {
-    if (BLOCKED_SEGMENTS.has(seg)) {
-      throw new Error(`Path segment '${seg}' is not allowed for security reasons.`);
+  for (const segment of segments) {
+    if (segment === '__proto__' || segment === 'constructor' || segment === 'prototype') {
+      throw new Error(`Path segment '${segment}' is not allowed for security reasons.`);
+    }
+  }
+  if (segments.length > 2) {
+    throw new Error(`Path '${path}' does not exist in PromptSchema.`);
+  }
+  if (segments.length === 2) {
+    const group = PROMPT_SCHEMA_SHAPE[root];
+    if (!isRecord(group) || !Object.hasOwn(group, segments[1])) {
+      throw new Error(`Path '${path}' does not exist in PromptSchema.`);
     }
   }
 }

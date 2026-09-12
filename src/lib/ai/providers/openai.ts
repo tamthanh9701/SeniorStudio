@@ -20,9 +20,33 @@ export const openAiProvider: ImageProvider = {
     const model = modelWithoutPrefix(job.model);
     const options = context.signal ? { signal: context.signal } : undefined;
 
+    const inputImages = context.inputImages ?? [];
+    const sources = inputImages.filter((image) => image.role === "source");
+    const refs = inputImages.filter((image) => image.role === "reference");
+
     if (job.operation === "text_to_image") {
-      const request = { model, prompt: job.input.prompt, n: job.input.count, size: job.input.size, quality: job.input.quality };
-      const response = options ? await openai.images.generate(request, options) : await openai.images.generate(request);
+      if (sources.length > 0) throw new ProviderError("INVALID_REQUEST", "text_to_image does not accept a source image");
+      if (refs.length === 0) {
+        const request = { model, prompt: job.input.prompt, n: job.input.count, size: job.input.size, quality: job.input.quality };
+        const response = options ? await openai.images.generate(request, options) : await openai.images.generate(request);
+        const responseData = response.data ?? [];
+        const images = responseData.map((image) => {
+          if (!image.b64_json) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "OpenAI returned no image data");
+          return { kind: "bytes" as const, bytes: new Uint8Array(Buffer.from(image.b64_json, "base64")), contentType: "image/png" };
+        });
+        return { state: "completed", images, requestId: null, metadata: { revised_prompt: responseData[0]?.revised_prompt ?? undefined } };
+      }
+
+      const imageArray: File[] = [];
+      for (const ref of refs) imageArray.push(await toFile(ref.bytes, fileNameForMime(ref.mimeType), { type: ref.mimeType }));
+      const response = await openai.images.edit({
+        model,
+        prompt: job.input.prompt,
+        n: job.input.count,
+        size: job.input.size,
+        quality: job.input.quality,
+        image: imageArray,
+      }, options);
       const responseData = response.data ?? [];
       const images = responseData.map((image) => {
         if (!image.b64_json) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "OpenAI returned no image data");
@@ -32,9 +56,8 @@ export const openAiProvider: ImageProvider = {
     }
 
     if (job.operation === "image_to_image") {
-      const source = context.inputImages?.find((img) => img.role === "source");
-      if (!source) throw new ProviderError("INVALID_REQUEST", "image_to_image requires a source image in context");
-      const refs = (context.inputImages ?? []).filter((img) => img.role === "reference");
+      if (sources.length !== 1) throw new ProviderError("INVALID_REQUEST", "image_to_image requires exactly one source image in context");
+      const source = sources[0];
       const imageArray: File[] = [await toFile(source.bytes, fileNameForMime(source.mimeType), { type: source.mimeType })];
       for (const ref of refs) imageArray.push(await toFile(ref.bytes, fileNameForMime(ref.mimeType), { type: ref.mimeType }));
       const response = await openai.images.edit({
@@ -54,20 +77,22 @@ export const openAiProvider: ImageProvider = {
     }
 
     if (job.operation !== "inpaint") throw new ProviderError("INVALID_REQUEST", `Unsupported operation: ${job.operation}`);
-    const source = context.inputImages?.find((img) => img.role === "source");
-    if (!source) throw new ProviderError("INVALID_REQUEST", "Inpaint requires source image in context inputImages");
+    if (sources.length !== 1) throw new ProviderError("INVALID_REQUEST", "Inpaint requires exactly one source image in context");
+    const source = sources[0];
     if (!context.maskBytes) throw new ProviderError("INVALID_REQUEST", "Inpaint requires mask bytes in context");
     if (source.bytes.byteLength > 50 * 1024 * 1024 || context.maskBytes.byteLength > 50 * 1024 * 1024) throw new ProviderError("FILE_TOO_LARGE", "Image and mask must each be at most 50 MiB");
     const [sourceMetadata, maskMetadata] = await Promise.all([sharp(source.bytes).metadata(), sharp(context.maskBytes).metadata()]);
     if (!sourceMetadata.width || !sourceMetadata.height || sourceMetadata.width !== maskMetadata.width || sourceMetadata.height !== maskMetadata.height) throw new ProviderError("VERSION_CONFLICT", "Image and mask dimensions must match");
     const rgbaMask = await sharp(context.maskBytes).ensureAlpha().png().toBuffer();
+    const imageArray: File[] = [await toFile(source.bytes, fileNameForMime(source.mimeType), { type: source.mimeType })];
+    for (const ref of refs) imageArray.push(await toFile(ref.bytes, fileNameForMime(ref.mimeType), { type: ref.mimeType }));
     const response = await openai.images.edit({
       model,
       prompt: job.input.prompt,
       n: 1,
       size: job.input.size,
       quality: job.input.quality,
-      image: await toFile(source.bytes, fileNameForMime(source.mimeType), { type: source.mimeType }),
+      image: imageArray,
       mask: await toFile(rgbaMask, "mask.png", { type: "image/png" }),
     }, options);
     const responseData = response.data ?? [];

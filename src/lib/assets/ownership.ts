@@ -109,14 +109,16 @@ export async function getOwnedStyleReference(client: SupabaseClient, workspaceId
   return { reference: data as OwnedStyleReference["reference"], style, owned: brandOwned(workspaceId, data.storage_path) };
 }
 
-export type OwnedJobMask = { mask: { id: string; workspace_id: string; project_id: string; asset_id: string; parent_version_id: string; storage_path: string; mime_type: string; width: number; height: number; byte_size: number; expires_at: string; job_id: string | null }; owned: OwnedStorageObject };
+export type OwnedJobMask = { mask: { id: string; workspace_id: string; project_id: string | null; style_id: string | null; asset_id: string | null; parent_version_id: string; storage_path: string; mime_type: string; width: number; height: number; byte_size: number; expires_at: string; job_id: string | null }; owned: OwnedStorageObject };
 export async function getOwnedJobMask(client: SupabaseClient, workspaceId: string, jobId: string): Promise<OwnedJobMask> {
   if (!isUuid(workspaceId) || !isUuid(jobId)) throw ownedError("INVALID_STORAGE_PATH");
   const { data, error } = await client.from("ai_job_inputs").select("*").eq("job_id", jobId).eq("workspace_id", workspaceId).limit(1).single();
   if (error) throw error;
-  if (!data) throw ownedError("NOT_FOUND");
-  if (!isUuid(data.id) || data.workspace_id !== workspaceId || !isUuid(data.project_id) || !isUuid(data.asset_id) || !isUuid(data.parent_version_id) || data.mime_type !== "image/png" || data.storage_path !== `${workspaceId}/${data.project_id}/job-inputs/${data.id}/mask.png`) throw ownedError("INVALID_STORAGE_PATH");
-  assertRow({ ...data, asset_id: data.asset_id } as Record<string, unknown>, "image/png", ["png"]);
+  if (!data || !isUuid(data.id) || data.workspace_id !== workspaceId || !isUuid(data.parent_version_id) || data.mime_type !== "image/png") throw ownedError("NOT_FOUND");
+  const isProject = isUuid(data.project_id) && isUuid(data.asset_id) && data.style_id === null && data.storage_path === `${workspaceId}/${data.project_id}/job-inputs/${data.id}/mask.png`;
+  const isStyle = data.project_id === null && data.asset_id === null && isUuid(data.style_id) && data.storage_path === `${workspaceId}/styles/${data.style_id}/job-inputs/${data.id}/mask.png`;
+  if (!isProject && !isStyle) throw ownedError("INVALID_STORAGE_PATH");
+  assertRow({ ...data, asset_id: data.asset_id ?? data.id } as Record<string, unknown>, "image/png", ["png"]);
   return { mask: data as OwnedJobMask["mask"], owned: brandOwned(workspaceId, data.storage_path) };
 }
 

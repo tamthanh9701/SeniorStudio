@@ -15,15 +15,15 @@ export default async function ProjectsPage() {
 
   const { data: projects, error: projectsError } = await supabase
     .from("projects")
-    .select("id, name, created_at, assets(id, current_version_id, created_at)")
-    .order("created_at", { ascending: false });
+    .select("id, name, created_at, updated_at, assets(id, current_version_id, created_at)")
+    .order("updated_at", { ascending: false });
 
   if (projectsError) throw new Error(`Unable to load projects: ${projectsError.message}`);
   const dashboardProjects = await Promise.all((projects ?? []).map(async (project) => {
     const latestAsset = [...(project.assets ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-    if (!latestAsset?.current_version_id) return { id: project.id, name: project.name, created_at: project.created_at, thumbnailUrl: null };
+    if (!latestAsset?.current_version_id) return { id: project.id, name: project.name, created_at: project.created_at, updated_at: project.updated_at, thumbnailUrl: null };
     const { data: version } = await supabase.from("asset_versions").select("storage_path").eq("id", latestAsset.current_version_id).maybeSingle();
-    return { id: project.id, name: project.name, created_at: project.created_at, thumbnailUrl: version ? await getSignedUrl(supabase, version.storage_path) : null };
+    return { id: project.id, name: project.name, created_at: project.created_at, updated_at: project.updated_at, thumbnailUrl: version ? await getSignedUrl(supabase, version.storage_path) : null };
   }));
 
   return <ProjectsDashboard projects={dashboardProjects} userEmail={user.email ?? "Signed in"} />;

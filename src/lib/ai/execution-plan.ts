@@ -9,10 +9,18 @@ export type ExecutionPlanRequest = {
   requestedModelId: string;
   styleId?: string;
   sourceVersionId?: string;
+  parentVersionId?: string;
+  maskId?: string;
+  prompt?: string;
+  contentOverrides?: Record<string, unknown> | null;
+  editTarget?: string;
+  useCurrentStyle?: boolean;
   costMode: CostMode;
   count: number;
   size: string;
   quality: string;
+  referenceIds?: string[];
+  preserveRequestedModel?: boolean;
 };
 
 export const AI_ECONOMY_IMAGE_MODELS: readonly SupportedModelId[] = [
@@ -35,6 +43,10 @@ export type ExecutionPlan = {
   modelChanged: boolean;
   explanation: string;
   supported: boolean;
+  styleRevision?: string | null;
+  compiledPrompt?: string | null;
+  planHash?: string | null;
+  warnings?: string[];
 };
 
 export type ModelEntry = ModelCatalogEntry & {
@@ -49,7 +61,7 @@ function compatible(model: ModelEntry, request: ExecutionPlanRequest, referenceC
   if (!model.qualities.includes(request.quality as SupportedQuality)) return false;
   if (request.count > model.maxCount) return false;
   if (referenceCount > 0 && !model.supportsReferenceImages) return false;
-  const inputCount = referenceCount + (request.operation === "image_to_image" ? 1 : 0);
+  const inputCount = referenceCount + (request.operation === "image_to_image" || request.operation === "inpaint" ? 1 : 0);
   return inputCount <= (model.maxInputImages ?? 4);
 }
 
@@ -73,17 +85,22 @@ export async function resolveImageExecutionPlan(
   if (!requestedEntry) throw new Error("INVALID_MODEL");
   if (!requestedEntry.operations.includes(request.operation)) throw new Error("INVALID_MODEL");
 
-  const referenceLimit = getReferenceLimit(request.costMode);
+  const referenceLimit = Math.max(0, (requestedEntry.maxInputImages ?? 4) - (request.operation === "text_to_image" ? 0 : 1));
+  const requestedReferenceIds = request.referenceIds ?? [];
+  if (new Set(requestedReferenceIds).size !== requestedReferenceIds.length) throw new Error("INVALID_REQUEST");
   let referenceIds: string[] = [];
   if (request.styleId) {
     const { data: refs, error } = await client
       .from("style_references")
       .select("id")
-      .eq("style_id", request.styleId)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true });
+      .eq("style_id", request.styleId);
     if (error) throw new Error(`REFERENCE_LOOKUP_FAILED: ${error.message}`);
-    referenceIds = (refs ?? []).map((ref) => ref.id).slice(0, referenceLimit);
+    const available = new Set((refs ?? []).map((ref) => ref.id as string));
+    if (requestedReferenceIds.some((id) => !available.has(id))) throw new Error("REFERENCE_NOT_FOUND");
+    if (requestedReferenceIds.length > referenceLimit) throw new Error(`REFERENCE_LIMIT_EXCEEDED: maximum ${referenceLimit} references for this model`);
+    referenceIds = [...requestedReferenceIds];
+  } else if (requestedReferenceIds.length > 0) {
+    throw new Error("REFERENCE_NOT_FOUND");
   }
 
   const mode = COST_MODE_OPTIONS.find((entry) => entry.id === request.costMode);
@@ -91,36 +108,22 @@ export async function resolveImageExecutionPlan(
   let effective = requestedEntry;
   let explanation = "Requested model supports the requested operation and settings.";
 
-  if (mode?.preserveRequestedModel) {
+  if (request.preserveRequestedModel || mode?.preserveRequestedModel) {
     if (!settingsCompatible) throw new Error("UNSUPPORTED_SETTINGS");
+  } else if (!settingsCompatible) {
+    throw new Error("UNSUPPORTED_SETTINGS");
   } else {
-    if (settingsCompatible) {
-      // Even when compatible, attempt economy downgrade for cost modes that allow it
-      const economyCandidate = AI_ECONOMY_IMAGE_MODELS.find((economyId) => {
-        if (economyId === requested) return false;
-        const entry = catalog.find((candidate) => candidate.id === economyId);
-        if (!entry || entry.provider !== provider) return false;
-        return compatible(entry, request, referenceIds.length);
-      });
-      if (economyCandidate) {
-        const economyEntry = catalog.find((candidate) => candidate.id === economyCandidate);
-        if (economyEntry) {
-          effective = economyEntry;
-          explanation = `Cost mode ${request.costMode} selected ${effective.id} to reduce cost.`;
-        }
+    const economyCandidate = AI_ECONOMY_IMAGE_MODELS.find((economyId) => {
+      if (economyId === requested) return false;
+      const entry = catalog.find((candidate) => candidate.id === economyId);
+      return Boolean(entry && entry.provider === provider && compatible(entry, request, referenceIds.length));
+    });
+    if (economyCandidate) {
+      const economyEntry = catalog.find((entry) => entry.id === economyCandidate);
+      if (economyEntry) {
+        effective = economyEntry;
+        explanation = `Cost mode ${request.costMode} selected ${effective.id} to reduce cost.`;
       }
-    } else {
-      const economyCandidate = AI_ECONOMY_IMAGE_MODELS.find((economyId) => {
-        if (economyId === requested) return false;
-        const entry = catalog.find((candidate) => candidate.id === economyId);
-        if (!entry || entry.provider !== provider) return false;
-        return compatible(entry, request, referenceIds.length);
-      });
-      if (!economyCandidate) throw new Error("UNSUPPORTED_SETTINGS");
-      const economyEntry = catalog.find((candidate) => candidate.id === economyCandidate);
-      if (!economyEntry) throw new Error("UNSUPPORTED_SETTINGS");
-      effective = economyEntry;
-      explanation = `Cost mode ${request.costMode} selected ${effective.id} because ${requested} cannot satisfy the requested operation or settings.`;
     }
   }
 

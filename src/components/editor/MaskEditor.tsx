@@ -7,7 +7,7 @@ import type Konva from "konva";
 
 type MaskLine = { points: number[]; tool: "brush" | "eraser"; width: number };
 
-export default function MaskEditor({ imageUrl, width, height, onMaskChange }: { imageUrl: string; width: number; height: number; onMaskChange: (maskPng: string | null) => void }) {
+export default function MaskEditor({ imageUrl, width, height, onMaskChange, onDirty }: { imageUrl: string; width: number; height: number; onMaskChange: (maskPng: string | null) => void; onDirty?: () => void }) {
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [brushSize, setBrushSize] = useState(40);
@@ -38,7 +38,8 @@ export default function MaskEditor({ imageUrl, width, height, onMaskChange }: { 
     setIsDrawing(true);
     setRedo([]);
     setLines((current) => [...current, { points: [position.x / scale, position.y / scale], tool, width: brushSize }]);
-  }, [brushSize, scale, tool]);
+    onDirty?.();
+  }, [brushSize, onDirty, scale, tool]);
   const draw = useCallback((event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     const position = event.target.getStage()?.getPointerPosition();
     if (!position) return;
@@ -46,7 +47,7 @@ export default function MaskEditor({ imageUrl, width, height, onMaskChange }: { 
     if (!isDrawing) return;
     setLines((current) => current.map((line, index) => index === current.length - 1 ? { ...line, points: [...line.points, position.x / scale, position.y / scale] } : line));
   }, [isDrawing, scale]);
-  const clear = () => { setLines([]); setRedo([]); setInverted(false); onMaskChange(null); };
+  const clear = () => { setLines([]); setRedo([]); setInverted(false); onMaskChange(null); onDirty?.(); };
   const exportMask = useCallback(() => {
     if (!lines.length) return;
     const canvas = document.createElement("canvas");
@@ -72,20 +73,20 @@ export default function MaskEditor({ imageUrl, width, height, onMaskChange }: { 
     onMaskChange(canvas.toDataURL("image/png"));
   }, [height, inverted, lines, onMaskChange, width]);
 
-  return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0d10]">
-    <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-[#111419] p-3">
-      <div className="flex rounded-xl bg-white/[0.045] p-1"><button onClick={() => setTool("brush")} className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs ${tool === "brush" ? "bg-[#7c5cff] text-white" : "text-[#98a2b3]"}`}><Paintbrush className="size-3.5" />Brush</button><button onClick={() => setTool("eraser")} className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs ${tool === "eraser" ? "bg-[#7c5cff] text-white" : "text-[#98a2b3]"}`}><Eraser className="size-3.5" />Restore</button></div>
-      <button className="studio-icon-button size-9 min-h-9" disabled={!lines.length} onClick={() => setLines((current) => { const last = current.at(-1); if (last) setRedo((items) => [...items, last]); return current.slice(0, -1); })} aria-label="Undo stroke"><Undo2 className="size-4" /></button>
-      <button className="studio-icon-button size-9 min-h-9" disabled={!redo.length} onClick={() => setRedo((current) => { const last = current.at(-1); if (last) setLines((items) => [...items, last]); return current.slice(0, -1); })} aria-label="Redo stroke"><Redo2 className="size-4" /></button>
-      <label className="ml-auto flex items-center gap-2 text-xs text-[#98a2b3]">Brush <input type="range" min="5" max="200" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} /><span className="w-10 text-right">{brushSize}px</span></label>
-      <button onClick={() => setInverted((value) => !value)} className="studio-button-secondary min-h-9 px-3 py-1 text-xs"><RotateCcw className="size-3.5" />{inverted ? "Normal" : "Invert"}</button>
-      <button onClick={clear} disabled={!lines.length} className="studio-icon-button size-9 min-h-9" aria-label="Clear mask"><Trash2 className="size-4" /></button>
+  return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--canvas)]">
+    <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--panel)] p-3">
+      <div className="flex rounded-xl bg-[var(--surface-hover)] p-1" role="group" aria-label="Mask tool"><button type="button" aria-pressed={tool === "brush"} onClick={() => setTool("brush")} className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs ${tool === "brush" ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]"}`}><Paintbrush className="size-3.5" />Brush</button><button type="button" aria-pressed={tool === "eraser"} onClick={() => setTool("eraser")} className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs ${tool === "eraser" ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]"}`}><Eraser className="size-3.5" />Restore</button></div>
+      <button type="button" className="studio-icon-button size-9 min-h-9" disabled={!lines.length} onClick={() => { setLines((current) => { const last = current.at(-1); if (last) { setRedo((items) => [...items, last]); onDirty?.(); } return current.slice(0, -1); }); }} aria-label="Undo stroke"><Undo2 className="size-4" /></button>
+      <button type="button" className="studio-icon-button size-9 min-h-9" disabled={!redo.length} onClick={() => { setRedo((current) => { const last = current.at(-1); if (last) { setLines((items) => [...items, last]); onDirty?.(); } return current.slice(0, -1); }); }} aria-label="Redo stroke"><Redo2 className="size-4" /></button>
+      <label className="ml-auto flex items-center gap-2 text-xs text-[var(--muted)]" htmlFor="mask-brush-size">Brush <input id="mask-brush-size" aria-valuetext={`${brushSize} pixels`} type="range" min="5" max="200" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} /><span className="w-10 text-right">{brushSize}px</span></label>
+      <button type="button" onClick={() => { setInverted((value) => !value); onDirty?.(); }} aria-pressed={inverted} className="studio-button-secondary min-h-9 px-3 py-1 text-xs"><RotateCcw className="size-3.5" />{inverted ? "Normal" : "Invert"}</button>
+      <button type="button" onClick={clear} disabled={!lines.length} className="studio-icon-button size-9 min-h-9" aria-label="Clear mask"><Trash2 className="size-4" /></button>
     </div>
     <div ref={stageAreaRef} className="checker-stage flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
       <Stage width={display.width} height={display.height} scaleX={scale} scaleY={scale} onMouseDown={begin} onMouseMove={draw} onMouseUp={() => setIsDrawing(false)} onMouseLeave={() => { setIsDrawing(false); setCursor(null); }} onTouchStart={begin} onTouchMove={draw} onTouchEnd={() => setIsDrawing(false)}>
         <Layer>{image && <KonvaImage image={image} width={width} height={height} />}{lines.map((line, index) => <Line key={index} points={line.points} stroke={line.tool === "brush" ? "rgba(124,92,255,.7)" : "rgba(239,98,98,.65)"} strokeWidth={line.width} lineCap="round" lineJoin="round" />)}{cursor && <Circle x={cursor.x} y={cursor.y} radius={brushSize / 2} stroke="white" strokeWidth={2 / scale} listening={false} />}</Layer>
       </Stage>
     </div>
-    <div className="flex items-center justify-between border-t border-white/10 bg-[#111419] p-3"><span className={`text-xs ${lines.length ? "text-[#f2b84b]" : "text-[#667085]"}`}>{lines.length ? `Unsaved mask · ${lines.length} stroke${lines.length === 1 ? "" : "s"}` : "Paint at least one edit region"}</span><button onClick={exportMask} disabled={!lines.length} className="studio-button-primary">Apply mask</button></div>
+    <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--panel)] p-3"><span role="status" className={`text-xs ${lines.length ? "text-[var(--warning)]" : "text-[var(--muted)]"}`}>{lines.length ? `Unsaved mask · ${lines.length} stroke${lines.length === 1 ? "" : "s"}` : "Paint at least one edit region"}</span><button type="button" onClick={exportMask} disabled={!lines.length} className="studio-button-primary">Apply mask</button></div>
   </div>;
 }

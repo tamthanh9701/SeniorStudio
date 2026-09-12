@@ -51,6 +51,27 @@ vi.mock("@/lib/style/flag", () => ({
 vi.mock("@/lib/ai/job-results", () => ({
   getJobResultUrls: vi.fn(async () => []),
 }));
+vi.mock("@/lib/style/generation-packet", () => ({
+  ContentOverridesSchema: { nullable: () => ({ optional: () => ({}) }) },
+  StyleGenerationPacketSchema: { parse: (value: unknown) => value },
+  compileStyleGenerationPacket: vi.fn(() => ({
+    packet_version: 1,
+    style_id: "55555555-5555-4555-8555-555555555555",
+    style_revision: "2026-01-01T00:00:00.000Z",
+    schema_snapshot: {},
+    operation: "image_to_image",
+    original_prompt: "",
+    effective_content: { subject: { main_subject: null, quantity: null, subject_details: null, size_scale: null, orientation_placement: null } },
+    compiled_prompt: "test prompt",
+    reference_snapshot: [],
+    source_version_id: null,
+    edit: null,
+    model: "google/gemini-3.1-flash-image",
+    size: "1024x1024",
+    quality: "auto",
+    count: 1,
+  })),
+}));
 
 const mockRpc = vi.fn();
 const mockFrom = vi.fn();
@@ -106,6 +127,7 @@ beforeEach(() => {
   mockRpc.mockResolvedValue({ data: null, error: null });
   mockFrom.mockImplementation((table: string) => {
     if (table === "style_references") return makeChain([]);
+    if (table === "styles") return makeChain({ id: STYLE_ID, status: "active", schema: {}, fingerprint: null, updated_at: "2026-01-01T00:00:00.000Z", workspace_id: WS_ID });
     return makeChain(null);
   });
 });
@@ -160,6 +182,7 @@ describe("style enqueue route consent mismatch", () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "workspace_members") return makeChain({ workspace_id: WS_ID });
       if (table === "asset_versions") return makeChain({ id: SOURCE_ID, assets: { id: "asset-1", style_id: STYLE_ID } });
+      if (table === "styles") return makeChain({ id: STYLE_ID, status: "active", schema: {}, fingerprint: null, updated_at: "2026-01-01T00:00:00.000Z", workspace_id: WS_ID });
       return makeChain(null);
     });
     mockRpc.mockResolvedValue({ data: { id: "job-1" }, error: null });
@@ -173,13 +196,14 @@ describe("style enqueue route consent mismatch", () => {
       supportsReferenceImages: true,
       maxInputImages: 4,
     }]);
-    const { POST } = await import("@/app/api/style/ai-jobs/route");
-    const response = await POST(jsonRequest("http://localhost/api/style/ai-jobs", {
+    const { POST } = await import("@/app/api/styles/[styleId]/ai-jobs/route");
+    const response = await POST(jsonRequest(`http://localhost/api/styles/${STYLE_ID}/ai-jobs`, {
+      operation: "image_to_image",
       model: "google/gemini-3.1-flash-image",
-      styleId: STYLE_ID,
+      prompt: "a variation",
       sourceVersionId: SOURCE_ID,
-      consent: { effectiveModelId: "openai/gpt-image-2", referenceIds: [], styleBudget: 1600, temperature: null, modelChanged: true },
-    }));
+      consent: { planHash: "wrong-hash" },
+    }), { params: Promise.resolve({ styleId: STYLE_ID }) });
     expect(response.status).toBe(409);
     const body = await response.json();
     expect(body.error.code).toBe("PLAN_CONSENT_MISMATCH");

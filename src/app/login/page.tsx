@@ -53,13 +53,12 @@ function LoginInner() {
   };
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(124,92,255,.22),transparent_38%)]" />
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--canvas)] px-4 py-10 text-[var(--text)] sm:px-6">
       <section className="studio-card relative w-full max-w-md p-6 sm:p-8">
         <div className="mb-8 flex flex-col items-center text-center">
-          <span className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-[#7c5cff]"><Sparkles className="size-6" /></span>
+          <span className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-[var(--accent)]"><Sparkles className="size-6" /></span>
           <h1 className="text-2xl font-semibold tracking-tight">Welcome to SeniorStudio</h1>
-          <p className="mt-2 text-sm leading-6 text-[#98a2b3]">Generate and refine images in a focused, immutable creative workspace.</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Generate and refine images in a focused, immutable creative workspace.</p>
         </div>
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
@@ -85,7 +84,7 @@ function LoginInner() {
             <button
               type="button"
               onClick={() => { setMode("reset"); setMessage(null); }}
-              className="mx-auto block text-xs text-[#98a2b3] transition hover:text-[#c9c1ff]"
+              className="mx-auto block text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
             >
               Forgot password?
             </button>
@@ -93,16 +92,14 @@ function LoginInner() {
             <button
               type="button"
               onClick={() => { setMode("signin"); setMessage(null); setPassword(""); }}
-              className="mx-auto block text-xs text-[#98a2b3] transition hover:text-[#c9c1ff]"
+              className="mx-auto block text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
             >
               Back to sign in
             </button>
           )}
-          {message && <div role={message.kind === "error" ? "alert" : "status"} aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm ${message.kind === "success" ? "border-[#35c48d]/30 bg-[#35c48d]/10 text-[#7ee2bc]" : "border-[#ef6262]/30 bg-[#ef6262]/10 text-[#ff9b9b]"}`}>
-            <span className="flex gap-2">{message.kind === "success" && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}{message.text}</span>
-          </div>}
+          {message && <div role={message.kind === "error" ? "alert" : "status"} aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm ${message.kind === "success" ? "border-[color-mix(in_srgb,var(--success)_30%,transparent)] bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]" : "border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]"}`}><span className="flex gap-2">{message.kind === "success" && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}{message.text}</span></div>}
         </form>
-        <p className="mt-6 text-center text-xs leading-5 text-[#667085]">Sign in with your email and password.</p>
+        <p className="mt-6 text-center text-xs leading-5 text-[var(--muted)]">Sign in with your email and password.</p>
       </section>
     </main>
   );
@@ -110,7 +107,7 @@ function LoginInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-dvh items-center justify-center text-sm text-[#98a2b3]">Loading sign in…</div>}>
+    <Suspense fallback={<div className="flex min-h-dvh items-center justify-center bg-[var(--canvas)] text-sm text-[var(--muted)]">Loading sign in…</div>}>
       <LoginInner />
     </Suspense>
   );

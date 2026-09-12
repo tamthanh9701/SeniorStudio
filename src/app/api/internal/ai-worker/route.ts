@@ -12,6 +12,10 @@ export async function POST(request: Request) {
   if (expireError) return NextResponse.json({ error: expireError.message }, { status: 500 });
   const { data: jobs, error } = await client.rpc("claim_ai_jobs", { p_worker_id: workerId, p_limit: 3, p_lease_seconds: 120 });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await client.from("service_heartbeats").upsert(
+    { service: "ai_worker", last_seen_at: new Date().toISOString() },
+    { onConflict: "service" }
+  );
   const results = await Promise.allSettled((jobs ?? []).map((job: unknown) => processAiJob(client, job, workerId)));
   const counts: Record<WorkerOutcome, number> = { succeeded: 0, processing: 0, failed: 0, canceled: 0, lease_lost: 0 };
   let hasRejection = false;

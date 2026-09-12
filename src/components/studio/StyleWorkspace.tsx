@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import JobTimeline from "@/components/studio/JobTimeline";
 import ModuleContextSidebar from "@/components/studio/ModuleContextSidebar";
-import RestyleComposer from "@/components/studio/RestyleComposer";
 import StyleCanvas from "@/components/studio/StyleCanvas";
 import StudioShell from "@/components/studio/StudioShell";
 import TuningPanel from "@/components/studio/TuningPanel";
@@ -38,7 +37,7 @@ export default function StyleWorkspace({ projects, userEmail, models, initialJob
   const selectionKey = useMemo(() => JSON.stringify({ styleId, sourceVersionId, modelId: settings.modelId, size: settings.size, quality: settings.quality, count: settings.count, guidance }), [styleId, sourceVersionId, settings.modelId, settings.size, settings.quality, settings.count, guidance]);
   const selectedIndex = useMemo(() => (selectedOverride?.key === selectionKey ? selectedOverride.index : 0), [selectionKey, selectedOverride]);
   const setSelectedIndex = (index: number) => setSelectedOverride({ key: selectionKey, index });
-  const { items, addJob } = useModuleJobs({ module: "style" }, initialJobs);
+  const { items, addJob } = useModuleJobs(styleId ? { module: "style", styleId } : { module: "style", styleId: "" }, initialJobs);
   const activeJobCount = items.filter(({ job }) => !isTerminalStatus(job.status)).length;
   const resultAssets = items.flatMap(({ job, result_urls }) => result_urls.map((url, index) => ({ id: `${job.id}-${index}`, name: (job.input.original_prompt ?? job.input.prompt).trim().slice(0, 80) || "Restyled", signedUrl: url, createdAt: job.created_at })));
   const selectResult = ({ url }: { url: string; assetId?: string }) => { const index = resultAssets.findIndex((asset) => asset.signedUrl === url); if (index >= 0) setSelectedIndex(index); };
@@ -63,7 +62,7 @@ export default function StyleWorkspace({ projects, userEmail, models, initialJob
   const [executionPlan, setExecutionPlan] = useState<{ effectiveModelId: string; referenceCount: number; styleBudget: number; modelChanged: boolean } | null>(null);
 
   const submit = async () => {
-    if (!styleId || !sourceVersionId || !settings.modelId || settings.modelId !== confirmedModelId) return;
+    if (!styleId || !sourceVersionId || !settings.modelId) return;
     setSubmitting(true); setError(null);
     try {
       const planResponse = await fetch("/api/ai-execution-plan", {
@@ -74,6 +73,9 @@ export default function StyleWorkspace({ projects, userEmail, models, initialJob
           requestedModelId: settings.modelId,
           styleId,
           sourceVersionId,
+          prompt: guidance,
+          referenceIds: [],
+          preserveRequestedModel: true,
           costMode,
           count: settings.count,
           size: settings.size,
@@ -95,28 +97,21 @@ export default function StyleWorkspace({ projects, userEmail, models, initialJob
         modelChanged: plan.modelChanged,
       });
 
-      const consent = {
-        effectiveModelId: plan.effectiveModelId,
-        referenceIds: plan.referenceIds,
-        styleBudget: plan.styleBudget,
-        temperature: plan.temperature,
-        modelChanged: plan.modelChanged,
-      };
 
-      const response = await fetch("/api/style/ai-jobs", {
+      const response = await fetch(`/api/styles/${styleId}/ai-jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          operation: "image_to_image",
           model: settings.modelId,
-          styleId,
-          costMode,
+          prompt: guidance,
+          referenceIds: plan.referenceIds,
           sourceVersionId,
-          requestedModelId: settings.modelId,
-          consent,
-          count: settings.count,
           size: settings.size,
           quality: settings.quality,
-          ...(guidance.trim() ? { prompt: guidance.trim() } : {}),
+          count: settings.count,
+          costMode,
+          consent: { planHash: plan.planHash },
         }),
       });
       const body = await response.json();
@@ -145,12 +140,11 @@ export default function StyleWorkspace({ projects, userEmail, models, initialJob
 
   const inspector = <div className="min-h-full p-4 pt-16 xl:pt-4">
     <h1 className="font-semibold">Restyle</h1>
-    <RestyleComposer models={availableModels} settings={settings} setSettings={(next) => { setSettings(next); setConfirmedModelId(null); }} styleId={styleId} setStyleId={setStyleId} costMode={costMode} setCostMode={setCostMode} sourceUrl={sourceUrl} guidance={guidance} setGuidance={setGuidance} submitting={submitting} error={error} onSubmit={submit} onSourceUpload={handleSourceUpload} confirmedModelId={confirmedModelId} setConfirmedModelId={setConfirmedModelId} planPreview={executionPlan ? { effectiveModelId: executionPlan.effectiveModelId, referenceCount: executionPlan.referenceCount, styleBudget: executionPlan.styleBudget, modelChanged: executionPlan.modelChanged } : undefined} />
   </div>;
   const sidebar = <ModuleContextSidebar currentModule="style" recentJobs={items} userEmail={userEmail} contextLabel={selectedStyle?.name ?? null} libraryTabs={libraries} />;
   const center = <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-y-auto">
     <StyleCanvas results={resultAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} previewUrl={sourceUrl || null} previewLabel={selectedStyle ? `Style: ${selectedStyle.name}` : null} loadingCount={activeJobCount} onEmptyFocus={() => undefined} />
-    {styleId && resultAssets.length > 0 && <TuningPanel styleId={styleId} generatedImageUrls={resultAssets.slice(-4).map((asset) => asset.signedUrl)} />}
+    {styleId && resultAssets.length > 0 && <TuningPanel styleId={styleId} generatedVersionIds={items.flatMap(({ job }) => job.version_id ? [job.version_id] : []).slice(-4)} />}
     {items.length > 0 && <div className="border-t border-white/10"><JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} /></div>}
   </div></div>;
   return <StudioShell projects={projects} userEmail={userEmail} recentJobs={items} leftSidebar={sidebar} center={center} inspector={inspector} />;

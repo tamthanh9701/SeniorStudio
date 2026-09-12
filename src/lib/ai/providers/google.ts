@@ -15,8 +15,12 @@ export const googleProvider: ImageProvider = {
     if (job.operation !== "text_to_image" && job.operation !== "image_to_image") throw new ProviderError("INVALID_REQUEST", "Google does not support this operation");
     const ai = new GoogleGenAI({ apiKey });
     const model = job.model.replace(/^google\//, "");
-    const source = context.inputImages?.find((img) => img.role === "source");
-    const refs = (context.inputImages ?? []).filter((img) => img.role === "reference");
+    const inputImages = context.inputImages ?? [];
+    const sources = inputImages.filter((image) => image.role === "source");
+    const refs = inputImages.filter((image) => image.role === "reference");
+    if (job.operation === "text_to_image" && sources.length > 0) throw new ProviderError("INVALID_REQUEST", "text_to_image does not accept a source image");
+    if (job.operation === "image_to_image" && sources.length !== 1) throw new ProviderError("INVALID_REQUEST", "image_to_image requires exactly one source image in context");
+    const source = sources[0];
     const contents: Array<{ type: "text"; text: string } | { type: "image"; data: string; mime_type: string }> = [];
     if (job.input.prompt) contents.push({ type: "text", text: job.input.prompt });
     if (source) contents.push({ type: "image", data: Buffer.from(source.bytes).toString("base64"), mime_type: source.mimeType });

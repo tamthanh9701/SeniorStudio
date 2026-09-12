@@ -4,18 +4,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/supabase/client";
 import { AiJobSchema, ProjectJobFeedItemSchema, isTerminalStatus, type AiJob, type ProjectJobFeedItem } from "@/db/ai-jobs";
 
-type ModuleScope = { module: "projects" | "style"; projectId?: string; styleId?: string };
+type StyleScope = { module: "style"; styleId: string };
+type ProjectScope = { module: "projects"; projectId: string };
+type ModuleScope = StyleScope | ProjectScope;
 
 function endpointFor(scope: ModuleScope) {
-  return scope.module === "style" ? "/api/style/ai-jobs?limit=50" : `/api/projects/${scope.projectId}/ai-jobs?limit=50`;
+  if (scope.module === "style") return `/api/styles/${scope.styleId}/ai-jobs?limit=50`;
+  return `/api/projects/${scope.projectId}/ai-jobs?limit=50`;
 }
 
 function realtimeFilter(scope: ModuleScope) {
-  return scope.module === "style" ? "module=eq.style" : `project_id=eq.${scope.projectId}`;
+  if (scope.module === "style") return `style_id=eq.${scope.styleId}`;
+  return `project_id=eq.${scope.projectId}`;
 }
 
 function channelName(scope: ModuleScope) {
-  return scope.module === "style" ? "style-module-jobs" : `project-jobs-${scope.projectId}`;
+  if (scope.module === "style") return `style-group-${scope.styleId}`;
+  return `project-jobs-${scope.projectId}`;
 }
 const STATUS_ORDER: Record<AiJob["status"], number> = { queued: 0, submitting: 1, processing: 2, persisting: 3, succeeded: 4, failed: 4, canceled: 4 };
 
@@ -67,22 +72,35 @@ export function mergeModuleJob(items: ProjectJobFeedItem[], job: AiJob) {
   return reconcileJobFeed(items, [{ job, result_urls: existing?.result_urls ?? [] }]);
 }
 
-export function useModuleJobs({ module: module_, projectId, styleId }: ModuleScope, initialItems: ProjectJobFeedItem[]) {
+export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedItem[]) {
+  const scopeKey = scope.module === "style" ? scope.styleId : scope.projectId;
   const [items, setItems] = useState(() => reconcileJobFeed([], initialItems));
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "offline">("idle");
   const terminalRefreshes = useRef(new Set<string>());
   const previousStatuses = useRef(new Map(initialItems.map((item) => [item.job.id, item.job.status])));
   const refreshSequence = useRef(0);
+  useEffect(() => {
+    refreshSequence.current += 1;
+    terminalRefreshes.current = new Set();
+    previousStatuses.current = new Map();
+    setItems(reconcileJobFeed([], initialItems));
+  }, [scopeKey]);
+
   const refresh = useCallback(async (): Promise<boolean> => {
     const sequence = ++refreshSequence.current;
-    const response = await fetch(endpointFor({ module: module_, projectId, styleId }), { cache: "no-store" });
-    if (!response.ok || sequence !== refreshSequence.current) return false;
-    const body = await response.json();
-    if (sequence !== refreshSequence.current) return false;
-    const parsed = ProjectJobFeedItemSchema.array().safeParse(body.jobs);
-    if (!parsed.success) return false;
-    setItems((current) => reconcileJobFeed(current, parsed.data));
-    return true;
-  }, [module_, projectId, styleId]);
+    setSyncState("syncing");
+    try {
+      const response = await fetch(endpointFor(scope), { cache: "no-store" });
+      if (!response.ok || sequence !== refreshSequence.current) { setSyncState("offline"); return false; }
+      const body = await response.json();
+      if (sequence !== refreshSequence.current) return false;
+      const parsed = ProjectJobFeedItemSchema.array().safeParse(body.jobs);
+      if (!parsed.success) { setSyncState("offline"); return false; }
+      setItems((current) => reconcileJobFeed(current, parsed.data));
+      setSyncState("idle");
+      return true;
+    } catch { setSyncState("offline"); return false; }
+  }, [scopeKey]);
 
   const hasActiveJobs = useMemo(() => items.some((item) => !isTerminalStatus(item.job.status)), [items]);
   const hasUnhydratedJobs = useMemo(
@@ -101,8 +119,8 @@ export function useModuleJobs({ module: module_, projectId, styleId }: ModuleSco
       void refresh();
       pollTimer = setInterval(refresh, 2000);
     };
-    const channel = supabase.channel(channelName({ module: module_, projectId, styleId }))
-      .on("postgres_changes", { event: "*", schema: "public", table: "ai_jobs", filter: realtimeFilter({ module: module_, projectId, styleId }) }, (payload) => {
+    const channel = supabase.channel(channelName(scope))
+      .on("postgres_changes", { event: "*", schema: "public", table: "ai_jobs", filter: realtimeFilter(scope) }, (payload) => {
         const parsed = AiJobSchema.safeParse(payload.new);
         if (!parsed.success) return;
         const job = parsed.data;
@@ -132,12 +150,11 @@ export function useModuleJobs({ module: module_, projectId, styleId }: ModuleSco
       clearInterval(pollTimer ?? undefined);
       void supabase.removeChannel(channel);
     };
-  }, [hasActiveJobs, hasUnhydratedJobs, module_, projectId, styleId, refresh]);
+  }, [hasActiveJobs, hasUnhydratedJobs, scopeKey, refresh]);
 
   const addJob = useCallback((job: AiJob) => {
     previousStatuses.current.set(job.id, job.status);
     setItems((current) => mergeModuleJob(current, job));
   }, []);
-
-  return { items, addJob, refresh };
+  return { items, addJob, refresh, syncState };
 }

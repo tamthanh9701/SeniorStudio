@@ -36,6 +36,7 @@ export const AiJobInputSchema = z.object({
   reference_ids: z.array(z.string().uuid()).optional().default([]).optional(),
   temperature: z.number().nullable().optional(),
   mask_id: z.string().uuid().nullable().optional(),
+  edit_target: z.string().nullable().optional(),
 });
 
 export const AiJobModuleSchema = z.enum(["projects", "style"]);
@@ -49,6 +50,8 @@ export const AiJobSchema = z.object({
   provider_request_id: z.string().nullable(), provider_status: z.string().nullable(), input: AiJobInputSchema,
   output: z.record(z.string(), z.unknown()), error_code: z.string().nullable(), error_message: z.string().nullable(),
   created_at: z.string(), updated_at: z.string(), completed_at: z.string().nullable(),
+  style_id: z.string().uuid().nullable().optional(),
+  style_generation: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 export type AiJob = z.infer<typeof AiJobSchema>;
 
@@ -80,6 +83,7 @@ export const ImageToImageEnqueueSchema = z.object({
 export const InpaintEnqueueSchema = z.object({
   operation: z.literal("inpaint"), model: SupportedModelIdSchema, parentVersionId: z.string().uuid(), maskId: z.string().uuid(),
   prompt: z.string().trim().min(1).max(8000), quality: SupportedQualitySchema,
+  referenceIds: z.array(z.string().uuid()).default([]), editTarget: z.string().optional(), consent: z.object({ planHash: z.string().min(1) }).optional(), useCurrentStyle: z.boolean().optional(),
 });
 export const MaskUploadSchema = z.object({ parentVersionId: z.string().uuid(), maskPng: z.string().min(1) });
 export const AiJobResponseSchema = z.object({ job: AiJobSchema, result_urls: z.array(z.string().url()).optional() });
