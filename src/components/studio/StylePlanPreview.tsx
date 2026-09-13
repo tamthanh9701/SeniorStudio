@@ -16,7 +16,7 @@ export function StylePlanPreview({ plan }: { plan: ExecutionPlan }) {
 
   return (
     <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" aria-label="Style plan preview">
-      <h3 className="text-sm font-semibold">Kế hoạch tạo ảnh</h3>
+      <h3 className="text-sm font-semibold">Generation plan</h3>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
         {fields.filter((field) => field.value !== null).map((field) => (
           <div key={field.label} className="flex flex-col gap-0.5">
@@ -27,7 +27,7 @@ export function StylePlanPreview({ plan }: { plan: ExecutionPlan }) {
       </dl>
       <div className="text-xs text-[var(--muted)]">
         <span>References</span>
-        <p className="mt-1 font-medium text-[var(--text)]">{refs.length ? refs.join(", ") : "Không có references"}</p>
+        <p className="mt-1 font-medium text-[var(--text)]">{refs.length ? refs.join(", ") : "No references"}</p>
       </div>
       {plan.explanation && <p className="text-xs text-[var(--muted)]">{plan.explanation}</p>}
       {plan.warnings && plan.warnings.length > 0 && (

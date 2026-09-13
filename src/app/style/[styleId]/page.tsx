@@ -85,10 +85,10 @@ export default async function StyleGroupPage({
             Gallery ({galleryAssets.length})
           </a>
           <a href={`/style/${styleId}/new`} className="rounded-lg px-3 py-2 text-sm text-[var(--accent)] hover:text-[var(--accent-hover)]">
-            + Tạo ảnh mới
+            + Create new image
           </a>
           <a href={`/style/${styleId}?tab=style`} className={`rounded-lg px-3 py-2 text-sm ${activeTab === "style" ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>
-            Phong cách
+            Style
           </a>
         </nav>
 
@@ -97,8 +97,8 @@ export default async function StyleGroupPage({
             <div>
               {galleryAssets.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20">
-                  <p className="text-sm text-[var(--muted)]">Chưa có ảnh nào. Bắt đầu tạo ảnh mới.</p>
-                  <a href={`/style/${styleId}/new`} className="studio-button-primary mt-4">Tạo ảnh mới</a>
+                  <p className="text-sm text-[var(--muted)]">No images yet. Create your first image.</p>
+                  <a href={`/style/${styleId}/new`} className="studio-button-primary mt-4">Create new image</a>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
@@ -110,11 +110,11 @@ export default async function StyleGroupPage({
 
           {activeTab === "style" && (
             <div className="max-w-3xl space-y-5">
-              <div><h2 className="text-lg font-semibold">Phong cách trực quan</h2><p className="mt-1 text-sm text-[var(--muted)]">Các quy tắc được phát hiện sẽ định hướng những ảnh tạo tiếp theo.</p></div>
+              <div><h2 className="text-lg font-semibold">Visual style</h2><p className="mt-1 text-sm text-[var(--muted)]">Detected rules guide the images you generate next.</p></div>
               {style.schema && Object.keys(style.schema).length > 0 ? <>
                 <div className="grid gap-3 sm:grid-cols-2"><div className="studio-card p-4"><p className="studio-label">Rendering</p><p className="text-sm">{schemaValue(style.schema, "artistic_style", ["medium", "rendering_style"]) ?? "Not specified"}</p></div><div className="studio-card p-4"><p className="studio-label">Lighting</p><p className="text-sm">{schemaValue(style.schema, "lighting", ["primary_light_source", "light_quality"]) ?? "Not specified"}</p></div><div className="studio-card p-4"><p className="studio-label">Material</p><p className="text-sm">{schemaValue(style.schema, "material_texture", ["primary_material", "surface_finish"]) ?? "Not specified"}</p></div><div className="studio-card p-4"><p className="studio-label">Composition</p><p className="text-sm">{schemaValue(style.schema, "composition", ["framing", "perspective", "crop_style"]) ?? "Not specified"}</p></div></div>
                 <details className="studio-card p-4"><summary className="cursor-pointer font-medium">Advanced schema</summary><pre className="mt-4 max-h-96 overflow-auto rounded-xl bg-[var(--surface-hover)] p-4 text-xs text-[var(--muted)]">{JSON.stringify(style.schema, null, 2)}</pre></details>
-              </> : <p className="studio-card p-6 text-sm text-[var(--muted)]">Chưa có schema. Hãy upload references và phân tích.</p>}
+              </> : <p className="studio-card p-6 text-sm text-[var(--muted)]">No schema yet. Upload references and analyze them.</p>}
             </div>
           )}
         </main>

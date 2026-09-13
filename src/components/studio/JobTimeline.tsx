@@ -39,9 +39,9 @@ function FailedCard({ job, onRetry }: { job: AiJob; onRetry: (job: AiJob) => voi
       {(job.error_code || job.error_message) && <p className="mt-1 text-xs text-[var(--muted)]">{[job.error_code, job.error_message].filter(Boolean).join(" — ")}</p>}
       {needsConfirm ? (
         <div className="mt-3 flex items-center gap-2">
-          <p className="text-xs text-[var(--text)]">Thử lại có thể tạo thêm ảnh mới với chi phí API. Tiếp tục?</p>
+          <p className="text-xs text-[var(--text)]">Retrying may create new images with additional API costs. Continue?</p>
           <button className="studio-button-secondary" onClick={() => { setConfirming(false); onRetry(job); }}><RotateCcw className="size-4" />Try again</button>
-          <button className="studio-button-secondary" onClick={() => setConfirming(false)}>Hủy</button>
+          <button className="studio-button-secondary" onClick={() => setConfirming(false)}>Cancel</button>
         </div>
       ) : (
         <button className="studio-button-secondary mt-3" onClick={() => { if (CONFIRM_CODES.has(job.error_code ?? "")) setConfirming(true); else onRetry(job); }}><RotateCcw className="size-4" />Try again</button>

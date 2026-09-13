@@ -205,7 +205,7 @@ export default function StyleInpaintPage() {
             <Paintbrush className="size-4 text-[var(--accent)]" />
             <h2 className="font-semibold">Inpaint Settings</h2>
           </div>
-          <p className="mt-2 text-xs text-[var(--muted)]">Vẽ vùng mask rồi nhập prompt chỉnh sửa. Kết quả sẽ tạo ảnh mới trong group.</p>
+          <p className="mt-2 text-xs text-[var(--muted)]">Draw a mask, then enter your edit prompt. A new image is created in the group.</p>
           <div className="mt-6 space-y-4">
             <label>
               <span className="studio-label">Model</span>
@@ -221,7 +221,7 @@ export default function StyleInpaintPage() {
             </label>
             <label>
               <span className="studio-label">Prompt</span>
-              <textarea className="studio-control min-h-20 w-full" placeholder="Mô tả chỉnh sửa cho vùng mask" value={prompt} onChange={(event) => { setPrompt(event.target.value); invalidate(); }} maxLength={8000} />
+              <textarea className="studio-control min-h-20 w-full" placeholder="Describe the edit for the masked area" value={prompt} onChange={(event) => { setPrompt(event.target.value); invalidate(); }} maxLength={8000} />
             </label>
           </div>
           {readyPreview && <StylePlanPreview plan={readyPreview.plan} />}
@@ -231,11 +231,11 @@ export default function StyleInpaintPage() {
       <StudioDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); settingsTriggerRef.current?.focus(); }} label="Inpaint settings" initialFocusRef={settingsRef} dismissible className="studio-card w-full max-w-md p-6" style={{ position: "fixed" } as React.CSSProperties}>
       <div ref={settingsRef as React.RefObject<HTMLDivElement>}>
         <div className="flex items-center gap-2"><Paintbrush className="size-4 text-[var(--accent)]" /><h2 className="font-semibold">Inpaint Settings</h2></div>
-        <p className="mt-2 text-xs text-[var(--muted)]">Vẽ vùng mask rồi nhập prompt chỉnh sửa. Kết quả sẽ tạo ảnh mới trong group.</p>
+        <p className="mt-2 text-xs text-[var(--muted)]">Draw a mask, then enter your edit prompt. A new image is created in the group.</p>
         <div className="mt-6 space-y-4">
           <label><span className="studio-label">Model</span><select className="studio-control" value={modelId} onChange={(event) => { const next = models.find((m) => m.id === event.target.value); if (!next) return; setModelId(next.id); setQuality(next.qualities[0]); invalidate(); setMaskId(null); }}>{models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>
           <label><span className="studio-label">Quality</span><select className="studio-control" value={quality} onChange={(event) => { setQuality(event.target.value as SupportedQuality); invalidate(); }}>{selected?.qualities.map((q) => <option key={q} value={q}>{q}</option>)}</select></label>
-          <label><span className="studio-label">Prompt</span><textarea className="studio-control min-h-20 w-full" placeholder="Mô tả chỉnh sửa cho vùng mask" value={prompt} onChange={(event) => { setPrompt(event.target.value); invalidate(); }} maxLength={8000} /></label>
+          <label><span className="studio-label">Prompt</span><textarea className="studio-control min-h-20 w-full" placeholder="Describe the edit for the masked area" value={prompt} onChange={(event) => { setPrompt(event.target.value); invalidate(); }} maxLength={8000} /></label>
         </div>
         {error && <p role="alert" className="mt-4 text-xs text-[var(--danger)]">{error}</p>}
       </div>

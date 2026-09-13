@@ -151,19 +151,19 @@ export default function StyleGroupComposer({
           {terminal ? (
             job.status === "succeeded" ? (
               <>
-                <p className="text-sm text-[var(--muted)]">Đã tạo ảnh xong.</p>
-                <a href={`/style/${styleId}`} className="mt-4 inline-block text-sm text-[var(--accent)] hover:underline">← Quay lại gallery</a>
+                <p className="text-sm text-[var(--muted)]">Image created successfully.</p>
+                <a href={`/style/${styleId}`} className="mt-4 inline-block text-sm text-[var(--accent)] hover:underline">← Back to gallery</a>
               </>
             ) : (
               <>
-                <p role="alert" className="text-sm text-[var(--danger)]">{job.error_message || `Tạo ảnh ${job.status === "canceled" ? "bị hủy" : "thất bại"}`}</p>
-                <a href={`/style/${styleId}`} className="mt-4 inline-block text-sm text-[var(--accent)] hover:underline">← Quay lại gallery để thử lại</a>
+                <p role="alert" className="text-sm text-[var(--danger)]">{job.error_message || `Image ${job.status === "canceled" ? "was canceled" : "generation failed"}`}</p>
+                <a href={`/style/${styleId}`} className="mt-4 inline-block text-sm text-[var(--accent)] hover:underline">← Back to gallery to retry</a>
               </>
             )
           ) : (
             <>
               <LoaderCircle className="mx-auto size-8 animate-spin text-[var(--accent)]" />
-              <p className="mt-4 text-sm text-[var(--muted)]">Đang tạo ảnh…</p>
+              <p className="mt-4 text-sm text-[var(--muted)]">Generating image…</p>
               <p className="mt-2 text-xs text-[var(--muted)]">Job {job.id.slice(0, 8)}</p>
             </>
           )}
@@ -177,14 +177,14 @@ export default function StyleGroupComposer({
       <header className="flex h-14 items-center gap-4 border-b border-[var(--border)] bg-[var(--panel)] px-4">
         <a href={`/style/${styleId}`} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">{styleName}</a>
         <span className="text-[var(--muted)]">/</span>
-        <h1 className="font-semibold">Tạo ảnh mới</h1>
-        {sourceVersion && <span className="ml-2 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-xs text-[var(--accent)]">Biến thể</span>}
+        <h1 className="font-semibold">Create new image</h1>
+        {sourceVersion && <span className="ml-2 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-xs text-[var(--accent)]">Variant</span>}
       </header>
       <div className="mx-auto max-w-2xl space-y-6 p-5 sm:p-8">
         <div>
           <label className="studio-label">Model</label>
           <select className="studio-control w-full" value={modelId} onChange={(e) => { setModelId(e.target.value); invalidate(); const m = models.find((x) => x.id === e.target.value); if (m) { setSize(m.sizes[0]); setQuality(m.qualities[0]); } }}>
-            <option value="" disabled>Chọn model</option>
+            <option value="" disabled>Select a model</option>
             {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </div>
@@ -201,13 +201,13 @@ export default function StyleGroupComposer({
         </div>
         <div>
           <label className="studio-label" htmlFor="style-generation-prompt">Prompt</label>
-          <textarea id="style-generation-prompt" className="studio-control min-h-24 w-full" placeholder={operation === "image_to_image" ? "Mô tả nội dung cho biến thể…" : "Mô tả ảnh muốn tạo…"} value={prompt} onChange={(e) => { setPrompt(e.target.value); invalidate(); }} maxLength={8000} />
+          <textarea id="style-generation-prompt" className="studio-control min-h-24 w-full" placeholder={operation === "image_to_image" ? "Describe the variation content…" : "Describe the image you want to create…"} value={prompt} onChange={(e) => { setPrompt(e.target.value); invalidate(); }} maxLength={8000} />
           <p className="mt-1 text-right text-xs text-[var(--muted)]">{prompt.length}/8000</p>
         </div>
         {readyPreview && <StylePlanPreview plan={readyPreview.plan} />}
         {error && <p role="alert" className="text-xs text-[var(--danger)]">{error}</p>}
         <button onClick={readyPreview ? submit : () => void previewPlan()} disabled={!prompt.trim() || !selectedModel || submitting || busyRef.current} className="studio-button-primary w-full">
-          {busyRef.current ? <><LoaderCircle className="size-4 animate-spin" /> {readyPreview ? "Đang tạo…" : "Xem trước kế hoạch…"}</> : readyPreview ? "Tạo ảnh" : "Xem trước kế hoạch"}
+          {busyRef.current ? <><LoaderCircle className="size-4 animate-spin" /> {readyPreview ? "Generating…" : "Previewing plan…"}</> : readyPreview ? "Create image" : "Preview plan"}
         </button>
       </div>
     </div>
