@@ -2,9 +2,13 @@ export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/supabase/server";
-import { getModelCatalog } from "@/lib/ai/models";
-import StyleGroupComposer from "@/components/studio/StyleGroupComposer";
 
+/**
+ * Composition moved into the style workspace.  This route keeps existing links
+ * (including variant links carrying `sourceVersionId`) working by validating
+ * ownership and forwarding to the workspace, rather than hosting a second
+ * generation UI.
+ */
 export default async function StyleNewImagePage({
   params,
   searchParams,
@@ -18,34 +22,19 @@ export default async function StyleNewImagePage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: style }, { data: workspaceMember }, { data: references }] = await Promise.all([
-    supabase.from("styles").select("id, name, status, schema, fingerprint, updated_at").eq("id", styleId).single(),
-    supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single(),
-    supabase.from("style_references").select("id, storage_path, mime_type, content_hash").eq("style_id", styleId).order("created_at"),
-  ]);
-
+  const { data: style } = await supabase.from("styles").select("id").eq("id", styleId).maybeSingle();
   if (!style) redirect("/style");
-  if (style.status !== "active") redirect(`/style/${styleId}`);
 
-  const models = workspaceMember ? await getModelCatalog(supabase, workspaceMember.workspace_id) : [];
-  const availableModels = models.filter((m) => m.operations.includes("text_to_image") || m.operations.includes("image_to_image"));
-
-  const refData = (references ?? []).map((r) => ({ id: r.id, content_hash: r.content_hash }));
-
-  let sourceVersionData: { id: string; prompt: string | null; metadata: Record<string, unknown> } | null = null;
+  const query = new URLSearchParams({ tab: "images", compose: "1" });
   if (sourceVersionId) {
-    const { data: sv } = await supabase.from("asset_versions").select("id, prompt, metadata").eq("id", sourceVersionId).single();
-    if (sv) sourceVersionData = { id: sv.id, prompt: sv.prompt, metadata: (sv.metadata ?? {}) as Record<string, unknown> };
+    // An unknown or foreign source version must not silently become a plain
+    // new image, so the workspace is told whether the variant is usable.
+    const { data: source } = await supabase
+      .from("asset_versions")
+      .select("id, assets!inner(style_id)")
+      .eq("id", sourceVersionId)
+      .maybeSingle();
+    if (source) query.set("sourceVersionId", sourceVersionId);
   }
-
-  return (
-    <StyleGroupComposer
-      styleName={style.name}
-      styleId={styleId}
-      schema={style.schema as Record<string, unknown>}
-      models={availableModels}
-      references={refData}
-      sourceVersion={sourceVersionData}
-    />
-  );
+  redirect(`/style/${styleId}?${query.toString()}`);
 }

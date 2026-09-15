@@ -44,7 +44,7 @@ describe("GET /api/styles", () => {
   });
 
   it("includes libraryId in response", async () => {
-    const styleData = [{ id: "s1", name: "Test", status: "draft", created_at: "", updated_at: "", library_id: "550e8400-e29b-41d4-a716-446655440000", style_references: [{ count: 2 }] }];
+    const styleData = [{ id: "s1", name: "Test", status: "draft", created_at: "", updated_at: "", library_id: "550e8400-e29b-41d4-a716-446655440000", analysis_meta: {}, confirmed_definition: null, style_references: [{ id: "r1", retired_at: null }, { id: "r2", retired_at: null }] }];
     (client.from as ReturnType<typeof vi.fn>).mockReturnValue(builder({ data: styleData, error: null }));
     
     const response = await GET(new Request("http://localhost/api/styles"));

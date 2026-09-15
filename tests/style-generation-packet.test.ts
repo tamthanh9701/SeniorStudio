@@ -115,7 +115,7 @@ describe("style generation packet", () => {
       styleRevision: "2026-09-09T12:00:00.000Z",
       schema: changedGroupSchema,
       originalPrompt: "replace the book with a folded map",
-      references: [{ id: REFERENCE_TWO, content_hash: "selected-for-inpaint" }],
+      references: [{ id: REFERENCE_ONE, content_hash: "source-hash" }],
       operation: "inpaint",
       sourceVersionId: SOURCE_VERSION_ID,
       sourcePacket,
@@ -135,11 +135,64 @@ describe("style generation packet", () => {
       target: "subject.subject_details",
       instruction: "replace the book with a folded map",
     });
+    // An edit belongs to the image it came from: the references recorded with
+    // that image survive even when a different set is requested.
     expect(inpaint.reference_snapshot).toEqual([
-      { id: REFERENCE_TWO, content_hash: "selected-for-inpaint" },
+      { id: REFERENCE_ONE, content_hash: "source-hash" },
     ]);
     expect(inpaint.compiled_prompt).toContain("\n\nEDIT\nsubject.subject_details: replace the book with a folded map");
     expect(inpaint.compiled_prompt).not.toContain("oil paint from a later revision");
+  });
+
+  it("rejects an edit that requests references other than the recorded ones", () => {
+    const sourcePacket = compile({
+      sourceVersionId: SOURCE_VERSION_ID,
+      references: [{ id: REFERENCE_ONE, content_hash: "source-hash" }],
+    });
+
+    expect(() => compileStyleGenerationPacket({
+      styleId: STYLE_ID,
+      styleRevision: "2026-09-09T12:00:00.000Z",
+      schema: styleSchema(),
+      originalPrompt: "swap the cup for a vase",
+      references: [{ id: REFERENCE_TWO, content_hash: "other" }],
+      operation: "inpaint",
+      sourceVersionId: SOURCE_VERSION_ID,
+      sourcePacket,
+      editTarget: "subject.subject_object.object_state",
+      model: "openai/gpt-image-2",
+      size: "1024x1024",
+      quality: "high",
+      count: 1,
+    })).toThrowError(expect.objectContaining({ code: "STYLE_CONFLICT" }));
+  });
+
+  it("keeps the analysed reference subject out of a brand new image", () => {
+    const schema = styleSchema();
+    schema.subject.main_subject = "clay cat figurine";
+    schema.environment.setting = "wooden shelf";
+
+    const packet = compileStyleGenerationPacket({
+      styleId: STYLE_ID,
+      styleRevision: "2026-09-09T08:00:00.000Z",
+      schema,
+      originalPrompt: "a small delivery truck",
+      references: [{ id: REFERENCE_ONE, content_hash: "hash-one" }],
+      operation: "text_to_image",
+      sourceVersionId: null,
+      sourcePacket: null,
+      editTarget: null,
+      model: "openai/gpt-image-2",
+      size: "1024x1024",
+      quality: "high",
+      count: 1,
+    });
+
+    expect(packet.effective_content.subject.main_subject).toBe("a small delivery truck");
+    expect(packet.compiled_prompt).toContain("subject.main_subject: a small delivery truck");
+    expect(packet.compiled_prompt).not.toContain("clay cat figurine");
+    expect(packet.compiled_prompt).not.toContain("wooden shelf");
+    expect(packet.compiled_prompt).toContain("artistic_style.medium: black India ink");
   });
 
   it("rejects inpaint missing a source packet unless useCurrentStyle=true", () => {
@@ -162,7 +215,7 @@ describe("style generation packet", () => {
     };
 
     expect(() => compileStyleGenerationPacket(base)).toThrowError(
-      expect.objectContaining({ code: "STYLE_CONFLICT" }),
+      expect.objectContaining({ code: "STYLE_SOURCE_SNAPSHOT_REQUIRED" }),
     );
 
     const fallback = compileStyleGenerationPacket({ ...base, useCurrentStyle: true });
@@ -177,6 +230,37 @@ describe("style generation packet", () => {
     });
     expect(withOriginal.original_prompt).toBe("A fox reading beside a window");
     expect(withOriginal.metadata?.style_provenance).toBe("current_style_fallback");
+  });
+
+  it("requires explicit adoption when the source packet has no reference snapshot", () => {
+    const legacySchema = styleSchema();
+    const legacy = StyleGenerationPacketSchema.parse({
+      ...compile(),
+      reference_snapshot: [],
+    });
+    const base = {
+      styleId: STYLE_ID,
+      styleRevision: "2026-09-09T12:00:00.000Z",
+      schema: legacySchema,
+      originalPrompt: "brighten the window",
+      references: [{ id: REFERENCE_ONE, content_hash: "hash-one" }],
+      operation: "inpaint" as const,
+      sourceVersionId: SOURCE_VERSION_ID,
+      sourcePacket: legacy,
+      editTarget: "subject.subject_details",
+      model: "openai/gpt-image-2" as const,
+      size: "1024x1024" as const,
+      quality: "high" as const,
+      count: 1 as const,
+    };
+
+    expect(() => compileStyleGenerationPacket(base)).toThrowError(
+      expect.objectContaining({ code: "STYLE_SOURCE_SNAPSHOT_REQUIRED" }),
+    );
+    const adopted = compileStyleGenerationPacket({ ...base, useCurrentStyle: true });
+    expect(adopted.metadata?.style_provenance).toBe("current_style_fallback");
+    expect(adopted.reference_snapshot).toEqual([{ id: REFERENCE_ONE, content_hash: "hash-one" }]);
+    expect(adopted.schema_snapshot.artistic_style.medium).toBe("black India ink");
   });
 
   it("rejects an invalid source packet instead of falling back silently", () => {

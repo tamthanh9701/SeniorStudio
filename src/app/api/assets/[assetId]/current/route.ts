@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/supabase/server";
+
+// Selective update: the caller states the current version it observed so two
+// reviewers cannot silently overwrite each other's decision.
+const SelectVersionSchema = z
+  .object({ versionId: z.string().uuid(), expectedCurrentVersionId: z.string().uuid().nullable() })
+  .strict();
 
 export async function PUT(
   request: NextRequest,
@@ -10,35 +17,35 @@ export async function PUT(
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
+  }
+  if (!z.string().uuid().safeParse(assetId).success) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Asset not found" } }, { status: 404 });
   }
 
-  const { versionId } = await request.json();
-
-  if (!versionId) {
-    return NextResponse.json({ error: "Missing versionId" }, { status: 400 });
+  const parsed = SelectVersionSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "versionId and expectedCurrentVersionId are required" } }, { status: 400 });
   }
 
-  // Verify version belongs to asset
-  const { data: version } = await supabase
-    .from("asset_versions")
-    .select("asset_id")
-    .eq("id", versionId)
+  const { data, error } = await supabase
+    .rpc("select_asset_version", {
+      p_asset_id: assetId,
+      p_version_id: parsed.data.versionId,
+      p_expected_current_version_id: parsed.data.expectedCurrentVersionId,
+    })
     .single();
 
-  if (!version || version.asset_id !== assetId) {
-    return NextResponse.json({ error: "Version not found" }, { status: 404 });
-  }
-
-  // Update asset current_version_id
-  const { error } = await supabase
-    .from("assets")
-    .update({ current_version_id: versionId, updated_at: new Date().toISOString() })
-    .eq("id", assetId);
-
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const message = error.message;
+    if (message.includes("VERSION_CONFLICT")) {
+      return NextResponse.json({ error: { code: "VERSION_CONFLICT", message: "Another version was selected first; reload to see the current one" } }, { status: 409 });
+    }
+    if (message.includes("NOT_FOUND")) {
+      return NextResponse.json({ error: { code: "NOT_FOUND", message: "Version not found" } }, { status: 404 });
+    }
+    return NextResponse.json({ error: { code: "UPDATE_FAILED", message } }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, asset: data });
 }

@@ -16,10 +16,20 @@ const StyleGroupJobSchema = z.discriminatedUnion("operation", [
 export const maxDuration = 120;
 
 function statusForError(message: string): number {
-  if (message.includes("NOT_FOUND") || message.includes("SOURCE_NOT_FOUND") || message.includes("REFERENCE_NOT_FOUND")) return 404;
+  if (message.includes("NOT_FOUND") || message.includes("SOURCE_NOT_FOUND") || message.includes("REFERENCE_NOT_FOUND") || message.includes("STYLE_NOT_FOUND")) return 404;
   if (message.includes("PROVIDER_NOT_CONFIGURED")) return 503;
-  if (message.includes("quota_exceeded")) return 429;
-  if (message.includes("STYLE_NOT_ACTIVE") || message.includes("VERSION_CONFLICT") || message.includes("PLAN_CONSENT_MISMATCH")) return 409;
+  if (message.includes("quota_exceeded") || message.includes("QUOTA_UNAVAILABLE")) return message.includes("quota_exceeded") ? 429 : 503;
+  if (
+    message.includes("VERSION_CONFLICT") ||
+    message.includes("PLAN_CONSENT_MISMATCH") ||
+    message.includes("STYLE_NOT_READY") ||
+    message.includes("STYLE_NOT_ACTIVE") ||
+    message.includes("STYLE_ANALYSIS_STALE") ||
+    message.includes("STYLE_SOURCE_SNAPSHOT_REQUIRED") ||
+    message.includes("STYLE_DEFINITION_INVALID") ||
+    message.includes("STYLE_CONFLICT") ||
+    message.includes("REFERENCE_CONTENT_CHANGED")
+  ) return 409;
   return 400;
 }
 

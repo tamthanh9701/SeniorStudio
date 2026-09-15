@@ -28,6 +28,35 @@ export async function commitStyleSchemaMutation(client: SupabaseClient, input: C
   return data;
 }
 
+/**
+ * Commit an analysis result together with the reference set it was derived
+ * from.  The transaction rejects the write when the live references changed
+ * while the provider call was running.
+ */
+export async function commitStyleAnalysis(client: SupabaseClient, input: {
+  styleId: string;
+  expectedUpdatedAt?: string | null;
+  referenceSnapshot: Array<{ id: string; content_hash: string | null }>;
+  schema: Record<string, unknown>;
+  fingerprint: Record<string, unknown>;
+  invariantContract: Record<string, unknown>;
+  styleFields?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const { data, error } = await client.rpc("commit_style_analysis", {
+    p_style_id: input.styleId,
+    p_expected_updated_at: input.expectedUpdatedAt ?? null,
+    p_reference_snapshot: input.referenceSnapshot,
+    p_schema: input.schema,
+    p_fingerprint: input.fingerprint,
+    p_invariant_contract: input.invariantContract,
+    p_style_fields: input.styleFields ?? {},
+    p_metadata: input.metadata ?? {},
+  });
+  if (error) throw error;
+  return data;
+}
+
 /** Legacy insert helper retained for existing schema-version consumers. */
 export async function appendSchemaVersion(client: SupabaseClient, styleId: string, input: { source: StyleSchemaVersionSource; schema: Record<string, unknown>; metadata?: Record<string, unknown> }) {
   const { data, error } = await client.from("style_schema_versions").insert({ style_id: styleId, source: input.source, schema: input.schema, metadata: input.metadata ?? {} });

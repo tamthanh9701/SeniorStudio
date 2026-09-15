@@ -312,6 +312,19 @@ function contentFromSchema(schema: PromptSchema): StyleGenerationPacket["effecti
   };
 }
 
+/**
+ * Starting content for a brand new image.
+ *
+ * The analysed schema describes the reference images that defined the style;
+ * copying its subject groups would leak that subject into every generation
+ * (clay cats asked for a delivery truck would keep producing cats).  Only
+ * explicit typed overrides and the user's own prompt seed the content.
+ */
+function emptyContent(): StyleGenerationPacket["effective_content"] {
+  const blank = createEmptyPrompt();
+  return contentFromSchema(blank);
+}
+
 function formatValue(value: unknown): string | null {
   if (typeof value === "string") return value.trim() || null;
   if (typeof value === "number") return String(value);
@@ -397,28 +410,72 @@ export function compileStyleGenerationPacket(
   const sourcePacket = input.sourcePacket
     ? StyleGenerationPacketSchema.parse(input.sourcePacket)
     : null;
-  const fallbackToCurrent = input.operation === "inpaint" && !sourcePacket && input.useCurrentStyle === true;
-  if (input.operation === "inpaint" && !sourcePacket && !fallbackToCurrent) {
-    throw new StyleError("STYLE_CONFLICT", "Inpaint requires the source generation packet snapshot; pass useCurrentStyle=true for current style fallback");
+  // A legacy source packet without references cannot authorise an edit: the
+  // caller must either supply the original definition or adopt explicitly.
+  const usableSource = sourcePacket !== null && sourcePacket.reference_snapshot.length > 0;
+  const adoptingCurrentStyle = input.operation === "inpaint" && !usableSource && input.useCurrentStyle === true;
+  if (input.operation === "inpaint" && !usableSource && !adoptingCurrentStyle) {
+    throw new StyleError(
+      "STYLE_SOURCE_SNAPSHOT_REQUIRED",
+      "This image predates a recorded style definition; confirm whether to apply the current confirmed style",
+    );
   }
   if (sourcePacket && sourcePacket.style_id !== input.styleId) {
     throw new StyleError("STYLE_CONFLICT", "Source packet belongs to a different style group");
   }
 
-  const snapshot = sourcePacket ? clone(sourcePacket.schema_snapshot) : clone(input.schema);
-  const baseContent = sourcePacket
-    ? clone(sourcePacket.effective_content)
-    : contentFromSchema(snapshot);
+  // An edit is defined by its source image; every other operation is defined by
+  // the confirmed definition supplied by the caller.  Chained edits therefore
+  // keep the original style even after the style is revised.
+  const sourceIsAuthority = input.operation === "inpaint" && usableSource;
+  const snapshot = sourceIsAuthority ? clone(sourcePacket!.schema_snapshot) : clone(input.schema);
+
+  let baseContent: StyleGenerationPacket["effective_content"];
+  if (sourceIsAuthority) {
+    baseContent = clone(sourcePacket!.effective_content);
+  } else if (input.operation === "inpaint") {
+    // Explicit adoption of the confirmed style: the original content is not
+    // recoverable, so only the recorded subject line and the user's edit seed
+    // the content.  The analysed reference subjects are never copied in.
+    baseContent = emptyContent();
+    if (input.sourceOriginalPrompt?.trim()) baseContent.subject.main_subject = input.sourceOriginalPrompt.trim();
+  } else if (input.operation === "image_to_image" && sourcePacket) {
+    baseContent = clone(sourcePacket.effective_content);
+  } else if (input.operation === "image_to_image") {
+    baseContent = contentFromSchema(snapshot);
+  } else {
+    baseContent = emptyContent();
+  }
   const overrides = parseContentOverrides(input.contentOverrides);
   const effectiveContent = mergeContent(baseContent, overrides);
 
-  let originalPrompt = sourcePacket?.original_prompt ?? input.originalPrompt;
+  // References follow the same authority as the schema: an edit reuses exactly
+  // the references that produced the source image, a new image uses the
+  // confirmed set.  A contradicting request is rejected, never merged.
+  const requestedReferences = input.references.map((reference) => ({
+    id: reference.id,
+    content_hash: reference.content_hash,
+  }));
+  const references = sourceIsAuthority
+    ? sourcePacket!.reference_snapshot.map((reference) => ({ ...reference }))
+    : requestedReferences;
+  if (sourceIsAuthority && requestedReferences.length > 0) {
+    const expected = new Map(references.map((reference) => [reference.id, reference.content_hash ?? ""]));
+    if (requestedReferences.some((reference) => expected.get(reference.id) !== (reference.content_hash ?? ""))) {
+      throw new StyleError("STYLE_CONFLICT", "An edit must reuse the references recorded with the source image");
+    }
+  }
+  if (references.length === 0) {
+    throw new StyleError("STYLE_NOT_READY", "This style has no confirmed reference images");
+  }
+
+  let originalPrompt = sourceIsAuthority ? sourcePacket!.original_prompt : input.originalPrompt;
   let edit: StyleGenerationPacket["edit"] = null;
   if (input.operation === "inpaint") {
     const target = input.editTarget ?? "subject.subject_details";
     edit = { target, instruction: input.originalPrompt };
     applyEdit(effectiveContent, target, input.originalPrompt);
-    if (fallbackToCurrent) {
+    if (adoptingCurrentStyle) {
       originalPrompt = input.sourceOriginalPrompt ?? "";
     }
   } else {
@@ -426,10 +483,6 @@ export function compileStyleGenerationPacket(
     originalPrompt = input.originalPrompt;
   }
 
-  const references = input.references.map((reference) => ({
-    id: reference.id,
-    content_hash: reference.content_hash,
-  }));
   const compiledPrompt = compilePrompt({ schema: snapshot, content: effectiveContent, references, edit });
   if (compiledPrompt.length > 8000) {
     throw new StyleError("PROMPT_TOO_LONG", "Compiled style prompt exceeds 8000 characters; shorten the content or style schema");
@@ -438,7 +491,7 @@ export function compileStyleGenerationPacket(
   return StyleGenerationPacketSchema.parse({
     packet_version: 1,
     style_id: input.styleId,
-    style_revision: sourcePacket?.style_revision ?? input.styleRevision,
+    style_revision: sourceIsAuthority ? sourcePacket!.style_revision : input.styleRevision,
     schema_snapshot: snapshot,
     operation: input.operation,
     original_prompt: originalPrompt,
@@ -451,6 +504,6 @@ export function compileStyleGenerationPacket(
     size: input.size,
     quality: input.quality,
     count: input.count,
-    metadata: fallbackToCurrent ? { style_provenance: "current_style_fallback" } : undefined,
+    metadata: adoptingCurrentStyle ? { style_provenance: "current_style_fallback" } : undefined,
   });
 }

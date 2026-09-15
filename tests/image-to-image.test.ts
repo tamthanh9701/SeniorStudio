@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createEmptyPrompt } from "../src/lib/style/prompt-schema";
 
 const WS_ID = "11111111-1111-4111-8111-111111111111";
 const STYLE_ID = "55555555-5555-4555-8555-555555555555";
@@ -51,7 +52,8 @@ vi.mock("@/lib/style/flag", () => ({
 vi.mock("@/lib/ai/job-results", () => ({
   getJobResultUrls: vi.fn(async () => []),
 }));
-vi.mock("@/lib/style/generation-packet", () => ({
+vi.mock("@/lib/style/generation-packet", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/style/generation-packet")>()),
   ContentOverridesSchema: { nullable: () => ({ optional: () => ({}) }) },
   StyleGenerationPacketSchema: { parse: (value: unknown) => value },
   compileStyleGenerationPacket: vi.fn(() => ({
@@ -126,8 +128,17 @@ beforeEach(() => {
   ]);
   mockRpc.mockResolvedValue({ data: null, error: null });
   mockFrom.mockImplementation((table: string) => {
-    if (table === "style_references") return makeChain([]);
-    if (table === "styles") return makeChain({ id: STYLE_ID, status: "active", schema: {}, fingerprint: null, updated_at: "2026-01-01T00:00:00.000Z", workspace_id: WS_ID });
+    if (table === "style_references") return makeChain([{ id: "33333333-3333-4333-8333-333333333333", content_hash: "a".repeat(64) }]);
+    if (table === "styles") return makeChain({
+      id: STYLE_ID, status: "active", schema: {}, fingerprint: null, updated_at: "2026-01-01T00:00:00.000Z", workspace_id: WS_ID,
+      confirmed_definition: {
+        definition_version: 1,
+        style_revision: "44444444-4444-4444-8444-444444444444",
+        schema_snapshot: createEmptyPrompt("Fixture style"),
+        reference_snapshot: [{ id: "33333333-3333-4333-8333-333333333333", content_hash: "a".repeat(64) }],
+        confirmed_at: "2026-01-01T00:00:00.000Z",
+      },
+    });
     return makeChain(null);
   });
 });
@@ -182,7 +193,17 @@ describe("style enqueue route consent mismatch", () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "workspace_members") return makeChain({ workspace_id: WS_ID });
       if (table === "asset_versions") return makeChain({ id: SOURCE_ID, assets: { id: "asset-1", style_id: STYLE_ID } });
-      if (table === "styles") return makeChain({ id: STYLE_ID, status: "active", schema: {}, fingerprint: null, updated_at: "2026-01-01T00:00:00.000Z", workspace_id: WS_ID });
+      if (table === "style_references") return makeChain([{ id: "33333333-3333-4333-8333-333333333333", content_hash: "a".repeat(64) }]);
+      if (table === "styles") return makeChain({
+        id: STYLE_ID, status: "active", schema: {}, fingerprint: null, updated_at: "2026-01-01T00:00:00.000Z", workspace_id: WS_ID,
+        confirmed_definition: {
+          definition_version: 1,
+          style_revision: "44444444-4444-4444-8444-444444444444",
+          schema_snapshot: createEmptyPrompt("Fixture style"),
+          reference_snapshot: [{ id: "33333333-3333-4333-8333-333333333333", content_hash: "a".repeat(64) }],
+          confirmed_at: "2026-01-01T00:00:00.000Z",
+        },
+      });
       return makeChain(null);
     });
     mockRpc.mockResolvedValue({ data: { id: "job-1" }, error: null });

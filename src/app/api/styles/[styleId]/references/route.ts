@@ -84,7 +84,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   if (totalBytes > MAX_TOTAL_BYTES) {
     return NextResponse.json({ error: { code: "REFERENCE_TOO_LARGE", message: "Upload exceeds the 20 MB total limit" } }, { status: 413 });
   }
-  const { count: existing } = await supabase.from("style_references").select("id", { count: "exact", head: true }).eq("style_id", styleId);
+  const { count: existing } = await supabase.from("style_references").select("id", { count: "exact", head: true }).eq("style_id", styleId).is("retired_at", null);
   if ((existing ?? 0) + files.length > MAX_REFERENCES) {
     return NextResponse.json({ error: { code: "TOO_MANY_REFERENCES", message: `A style supports at most ${MAX_REFERENCES} reference images` } }, { status: 400 });
   }
@@ -118,23 +118,33 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     if (uploadError) return NextResponse.json({ error: { code: "FILE_UNAVAILABLE", message: "Failed to store reference" } }, { status: 500 });
 
     const { data: reference, error: insertError } = await supabase
-      .from("style_references")
-      .insert({
-        style_id: styleId,
-        storage_path: storagePath,
-        mime_type: declaredMime,
-        byte_size: bytes.byteLength,
-        width: metadata.width ?? null,
-        height: metadata.height ?? null,
-        content_hash: contentHash,
+      .rpc("add_style_reference", {
+        p_style_id: styleId,
+        p_reference: {
+          storage_path: storagePath,
+          mime_type: declaredMime,
+          byte_size: bytes.byteLength,
+          width: metadata.width ?? null,
+          height: metadata.height ?? null,
+          content_hash: contentHash,
+        },
       })
-      .select("id, mime_type, byte_size, width, height, content_hash, created_at")
       .single();
     if (insertError) {
       await service.storage.from(STORAGE_BUCKET).remove([storagePath]);
-      return NextResponse.json({ error: { code: "INVALID_REQUEST", message: insertError.message } }, { status: 500 });
+      const code = insertError.message.includes("TOO_MANY_REFERENCES") ? "TOO_MANY_REFERENCES" : insertError.message.includes("STYLE_NOT_FOUND") ? "STYLE_NOT_FOUND" : "INVALID_REQUEST";
+      const status = code === "TOO_MANY_REFERENCES" ? 400 : code === "STYLE_NOT_FOUND" ? 404 : 500;
+      return NextResponse.json({ error: { code, message: insertError.message } }, { status });
     }
-    inserted.push(reference);
+    inserted.push({
+      id: (reference as Record<string, unknown>).id,
+      mime_type: (reference as Record<string, unknown>).mime_type,
+      byte_size: (reference as Record<string, unknown>).byte_size,
+      width: (reference as Record<string, unknown>).width,
+      height: (reference as Record<string, unknown>).height,
+      content_hash: (reference as Record<string, unknown>).content_hash,
+      created_at: (reference as Record<string, unknown>).created_at,
+    });
   }
 
   return NextResponse.json({ references: inserted }, { status: 201 });

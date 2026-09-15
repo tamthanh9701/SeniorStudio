@@ -26,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
 
   const { data: style } = await supabase.from("styles").select("schema, workspace_id").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
-  const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId).order("created_at");
+  const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId).is("retired_at", null).order("created_at");
   const referenceUrls = await Promise.all((references ?? []).slice(0, 4).map(async (reference) => {
     const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(reference.storage_path, 300);
     return data?.signedUrl ?? null;

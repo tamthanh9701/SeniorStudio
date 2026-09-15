@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiJobSchema, type AiJob } from "@/db/ai-jobs";
 import { prepareImageBytes } from "@/lib/assets/service";
+import { compositeInpaintResult } from "@/lib/assets/inpaint-composite";
 import { providerForJob } from "@/lib/ai/providers";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types";
@@ -110,6 +112,7 @@ async function persistJobImages(
   workerId: string,
   submission: CompletedSubmission,
   providerStatus: string,
+  prepared: PreparedInputs,
 ) {
   const { error: stateError } = await client.rpc("set_ai_job_persisting", { p_job_id: job.id, p_worker_id: workerId });
   if (stateError) throw stateError;
@@ -117,13 +120,24 @@ async function persistJobImages(
   const uploadedPaths: string[] = [];
   const images = submission.images.slice(0, job.input.count);
   if (images.length !== job.input.count) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "Provider returned an unexpected number of images");
+  // A style edit lands as a candidate child version of its source asset; the
+  // current version moves only when the user keeps the edit.
+  const isCandidateEdit = job.module === "style" && job.operation === "inpaint";
+  if (isCandidateEdit && (!prepared.sourceBytes || !prepared.maskBytes)) {
+    throw new ProviderError("INVALID_REQUEST", "Edit job is missing its source image or mask");
+  }
   try {
     for (const image of images) {
-      const bytes = await providerBytes(image);
+      const providerOutput = await providerBytes(image);
+      // An edit must not alter anything outside the painted region.  Providers
+      // honour masks to varying degrees, so the invariant is enforced here.
+      const bytes = isCandidateEdit
+        ? await compositeInpaintResult(prepared.sourceBytes!, providerOutput, prepared.maskBytes!)
+        : providerOutput;
       const decoded = await prepareImageBytes(bytes);
       if (decoded.bytes.byteLength > MAX_BYTES || decoded.width * decoded.height > MAX_PIXELS) throw new ProviderError("FILE_TOO_LARGE", "Provider result exceeds image limits");
       const isStyleJob = job.module === "style";
-      const assetId = isStyleJob || job.operation !== "inpaint" ? crypto.randomUUID() : job.asset_id;
+      const assetId = isCandidateEdit ? job.asset_id : crypto.randomUUID();
       const versionId = crypto.randomUUID();
       if (!assetId) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "Inpaint job has no asset");
       if (isStyleJob && !job.style_id) throw new ProviderError("INVALID_REQUEST", "Style job has no style_id");
@@ -173,28 +187,72 @@ async function downloadStorageBytes(client: SupabaseClient, storagePath: string)
   return { bytes: result.bytes, mimeType: decoded.mimeType };
 }
 
-async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<{ inputImages: InputImage[]; maskBytes?: Uint8Array }> {
+type PreparedInputs = {
+  inputImages: InputImage[];
+  maskBytes?: Uint8Array;
+  /** Decoded source bytes for the recorded source version, reused for compositing. */
+  sourceBytes?: Uint8Array;
+};
+
+/**
+ * The references a job must submit.
+ *
+ * A persisted job records its snapshot in the generation packet; the caller's
+ * `reference_ids` must describe that same set.  Bytes are verified against the
+ * recorded hash so a replaced object cannot silently change what a confirmed
+ * definition means.
+ */
+function expectedReferenceHashes(job: AiJob): Map<string, string> | null {
+  const snapshot = (job.style_generation as { reference_snapshot?: unknown } | null | undefined)?.reference_snapshot;
+  if (!Array.isArray(snapshot)) return null;
+  const hashes = new Map<string, string>();
+  for (const entry of snapshot) {
+    if (!entry || typeof entry !== "object") return null;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== "string") return null;
+    hashes.set(record.id, typeof record.content_hash === "string" ? record.content_hash.toLowerCase() : "");
+  }
+  return hashes;
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<PreparedInputs> {
   const inputImages: InputImage[] = [];
   let maskBytes: Uint8Array | undefined;
+  let sourceBytes: Uint8Array | undefined;
   if (job.operation === "image_to_image" || job.operation === "inpaint") {
     const sourceVersionId = job.operation === "inpaint" ? job.parent_version_id : job.source_version_id;
     if (!sourceVersionId) throw new ProviderError("INVALID_REQUEST", `${job.operation} requires a source version`);
     const { data: source, error } = await client.from("asset_versions").select("asset_id").eq("id", sourceVersionId).single();
     if (error || !source) throw new ProviderError("NOT_FOUND", "Source version not found");
     const owned = await getOwnedAssetVersion(client, job.workspace_id, source.asset_id, sourceVersionId);
-    inputImages.push({ role: "source", id: sourceVersionId, ...(await downloadOwnedBytes(client, owned.owned)) });
+    const downloaded = await downloadOwnedBytes(client, owned.owned);
+    sourceBytes = downloaded.bytes;
+    inputImages.push({ role: "source", id: sourceVersionId, ...downloaded });
   }
   const referenceIds = job.input.reference_ids ?? [];
+  const expectedHashes = referenceIds.length > 0 ? expectedReferenceHashes(job) : null;
+  if (referenceIds.length > 0 && (!expectedHashes || expectedHashes.size !== referenceIds.length)) {
+    throw new ProviderError("INVALID_REQUEST", "Job references do not match its recorded style snapshot");
+  }
   for (const referenceId of referenceIds) {
     if (!job.style_id) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
     const owned = await getOwnedStyleReference(client, job.workspace_id, job.style_id, referenceId);
-    inputImages.push({ role: "reference", id: referenceId, ...(await downloadOwnedBytes(client, owned.owned)) });
+    const downloaded = await downloadOwnedBytes(client, owned.owned);
+    const expected = expectedHashes!.get(referenceId) ?? "";
+    if (expected && sha256Hex(downloaded.bytes) !== expected) {
+      throw new ProviderError("REFERENCE_CONTENT_CHANGED", "A reference image no longer matches the style definition");
+    }
+    inputImages.push({ role: "reference", id: referenceId, ...downloaded });
   }
   if (job.operation === "inpaint" && (job.input.mask_id || job.input.mask_storage_path)) {
     const owned = await getOwnedJobMask(client, job.workspace_id, job.id);
     maskBytes = (await downloadOwnedBytes(client, owned.owned)).bytes;
   }
-  return { inputImages, maskBytes };
+  return { inputImages, maskBytes, sourceBytes };
 }
 
 function normalizeErrorMessage(error: unknown): string {
@@ -233,7 +291,8 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
     return failJob(client, job, workerId, "PROVIDER_NOT_CONFIGURED", "No API key is configured for this provider");
   }
   try {
-    const { inputImages, maskBytes } = await prepareInputImages(client, job);
+    const prepared = await prepareInputImages(client, job);
+    const { inputImages, maskBytes } = prepared;
     const context = { client, job, apiKey, inputImages, maskBytes, signal: AbortSignal.timeout(150_000) };
     if (job.status === "processing" && job.provider === "google" && job.provider_request_id) {
       const result = await withLeaseHeartbeat(client, job, workerId, () => provider.poll(context));
@@ -242,7 +301,7 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
         if (error) throw error;
         return "processing";
       }
-      await withLeaseHeartbeat(client, job, workerId, () => persistJobImages(client, job, workerId, { state: "completed", images: result.images, requestId: job.provider_request_id, metadata: result.metadata }, result.providerStatus));
+      await withLeaseHeartbeat(client, job, workerId, () => persistJobImages(client, job, workerId, { state: "completed", images: result.images, requestId: job.provider_request_id, metadata: result.metadata }, result.providerStatus, prepared));
       if (job.module !== "style") await cleanMask(client, job);
       return "succeeded";
     }
@@ -258,14 +317,17 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
       if (error) throw error;
       return "processing";
     }
-    await withLeaseHeartbeat(client, job, workerId, () => persistJobImages(client, job, workerId, submission, "COMPLETED"));
+    await withLeaseHeartbeat(client, job, workerId, () => persistJobImages(client, job, workerId, submission, "COMPLETED", prepared));
     if (job.module !== "style") await cleanMask(client, job);
     return "succeeded";
   } catch (error) {
     const message = normalizeErrorMessage(error);
     if (message.includes("LEASE_NOT_OWNED") || message.includes("lease")) return "lease_lost";
+    // ProviderError carries a `code`, so it must be classified before the
+    // database-error guard below; otherwise a rejected reference or a failed
+    // input download would crash the worker instead of failing the job.
+    if (error instanceof ProviderError) return failJob(client, job, workerId, error.code, message);
     if (error instanceof PostgrestError || (typeof error === "object" && error !== null && "code" in error)) throw error;
-    const code = error instanceof ProviderError ? error.code : "PROVIDER_ERROR";
-    return failJob(client, job, workerId, code, message);
+    return failJob(client, job, workerId, "PROVIDER_ERROR", message);
   }
 }

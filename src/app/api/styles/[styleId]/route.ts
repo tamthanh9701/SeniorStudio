@@ -11,7 +11,7 @@ import { STORAGE_BUCKET } from "@/db/schema";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 const PatchStyleSchema = z
-  .object({ name: z.string().trim().min(1).max(100).optional(), status: z.enum(["draft", "active"]).optional(), libraryId: z.string().uuid().nullable().optional(), schema: z.record(z.string(), z.unknown()).optional() })
+  .object({ name: z.string().trim().min(1).max(100).optional(), status: z.enum(["draft", "active"]).optional(), libraryId: z.string().uuid().nullable().optional(), schema: z.record(z.string(), z.unknown()).optional(), expectedUpdatedAt: z.string().min(1).optional() })
   .strict();
 
 function flagDisabled() {
@@ -30,6 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sty
     .from("style_references")
     .select("id, storage_path, mime_type, byte_size, width, height, content_hash, created_at")
     .eq("style_id", styleId)
+    .is("retired_at", null)
     .order("created_at");
   const referencesWithUrls = await Promise.all((references ?? []).map(async (reference) => {
     const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(reference.storage_path, 600);
@@ -52,7 +53,51 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ st
   const { data: style } = await supabase.from("styles").select("id, status, schema, fingerprint, invariant_contract, analysis_meta, operability, updated_at").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
 
-  const meta = (style.analysis_meta ?? {}) as Record<string, unknown>;
+  // Confirming a style publishes the analysed candidate as the durable
+  // definition used for generation.  It is a distinct operation from editing
+  // the candidate, so both in one request is rejected rather than guessed.
+  if (parsed.data.status === "active") {
+    if (parsed.data.schema) {
+      return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Save the schema change, review it, then confirm the style" } }, { status: 400 });
+    }
+    if (!parsed.data.expectedUpdatedAt) {
+      return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "expectedUpdatedAt is required to confirm a style" } }, { status: 400 });
+    }
+    const { data: confirmed, error: confirmError } = await supabase
+      .rpc("confirm_style_definition", { p_style_id: styleId, p_expected_updated_at: parsed.data.expectedUpdatedAt })
+      .single();
+    if (confirmError) {
+      const message = confirmError.message;
+      if (message.includes("STYLE_VERSION_CONFLICT")) {
+        return NextResponse.json({ error: { code: "STYLE_VERSION_CONFLICT", message: "Style was modified since you started editing" } }, { status: 409 });
+      }
+      if (message.includes("STYLE_ANALYSIS_STALE")) {
+        return NextResponse.json({ error: { code: "STYLE_ANALYSIS_STALE", message: "References changed since the analysis; analyze them again" } }, { status: 409 });
+      }
+      if (message.includes("STYLE_NOT_READY")) {
+        return NextResponse.json({ error: { code: "STYLE_NOT_READY", message: "Add references and run analysis before confirming this style" } }, { status: 409 });
+      }
+      if (message.includes("STYLE_NOT_FOUND")) {
+        return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+      }
+      return NextResponse.json({ error: { code: "UPDATE_FAILED", message } }, { status: 500 });
+    }
+    let afterConfirm = confirmed as Record<string, unknown>;
+    if (parsed.data.name !== undefined || parsed.data.libraryId !== undefined) {
+      const { data: renamed, error: renameError } = await supabase.rpc("update_style_fields", {
+        p_style_id: styleId,
+        p_expected_updated_at: afterConfirm.updated_at,
+        p_patch: {
+          ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+          ...(parsed.data.libraryId !== undefined ? { library_id: parsed.data.libraryId } : {}),
+        },
+      });
+      if (renameError) return NextResponse.json({ error: { code: "UPDATE_FAILED", message: renameError.message } }, { status: 500 });
+      afterConfirm = renamed as Record<string, unknown>;
+    }
+    return NextResponse.json({ style: afterConfirm });
+  }
+
   let schemaUpdate: Record<string, unknown> = {};
   let schemaQualityScore: number | undefined;
   if (parsed.data.schema) {
@@ -65,15 +110,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ st
     schemaUpdate = { schema: lintResult.schema, fingerprint, invariant_contract: contract, operability };
   }
 
-  const effectiveSchema = (schemaUpdate.schema ?? style.schema) as Record<string, unknown> | null;
-  const effectiveFingerprint = schemaUpdate.fingerprint ?? style.fingerprint;
-  const effectiveContract = schemaUpdate.invariant_contract ?? style.invariant_contract;
-  const effectiveOperability = (schemaUpdate.operability ?? style.operability) as { grade?: string } | null;
-  const analyzed = Boolean(meta.analyzedAt) && Boolean(effectiveSchema && Object.keys(effectiveSchema).length > 0) && Boolean(effectiveFingerprint) && Boolean(effectiveContract);
-  const activatableGrades = new Set(['production_ready', 'usable_with_warnings']);
-  if (parsed.data.status === 'active' && (!analyzed || !activatableGrades.has(effectiveOperability?.grade ?? ''))) {
-    return NextResponse.json({ error: { code: 'STYLE_NOT_READY', message: analyzed ? 'Resolve style operability checks before activation' : 'Run analysis before activating this style' } }, { status: 400 });
-  }
   let updated;
   try {
     if (parsed.data.schema) {

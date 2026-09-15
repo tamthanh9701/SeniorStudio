@@ -17,7 +17,7 @@ import type { StyleAnalysisProvider } from "./providers/types";
 import { STYLE_ANALYSIS_FRAMEWORK_VERSION } from "./analysis-framework";
 import { buildStyleClarificationQuestions } from "./clarification-questions";
 import { scoreStyleOperability } from "./operability-scorer";
-import { commitStyleSchemaMutation } from "./schema-versions";
+import { commitStyleAnalysis } from "./schema-versions";
 import { styleFingerprintToPrompt, type StyleFingerprint } from "./fingerprint";
 import { getStyleBudget, type CostMode } from "./cost-modes";
 
@@ -74,9 +74,18 @@ export async function analyzeStyleProfile(params: {
   if (styleError || !style) throw new StyleError("STYLE_NOT_FOUND", "Style not found");
 
   const { data: references, error: refsError } = await client
-    .from("style_references").select("id, storage_path, mime_type, byte_size, content_hash").eq("style_id", styleId).order("created_at");
+    .from("style_references").select("id, storage_path, mime_type, byte_size, content_hash").eq("style_id", styleId).is("retired_at", null).order("created_at").order("id");
   if (refsError) throw new StyleError("INVALID_REQUEST", refsError.message);
   if (!references || references.length === 0) throw new StyleError("NO_REFERENCES", "Upload at least one reference image before analyzing");
+  // The analysed set is recorded so a later add/retire can be detected as stale
+  // and so confirmation can prove which references the definition came from.
+  const referenceSnapshot = (references as StyleReferenceRow[]).map((reference) => ({
+    id: reference.id,
+    content_hash: reference.content_hash,
+  }));
+  if (referenceSnapshot.some((reference) => !reference.content_hash)) {
+    throw new StyleError("INVALID_REQUEST", "A reference image is missing its content hash; remove and upload it again");
+  }
 
   const service = getServiceClient();
   const bytes = await Promise.all(
@@ -135,6 +144,7 @@ export async function analyzeStyleProfile(params: {
     frameworkVersion: STYLE_ANALYSIS_FRAMEWORK_VERSION,
     sourceCommit: STYLE_ENGINE_SOURCE_COMMIT,
     referenceHashes: (references as StyleReferenceRow[]).map((reference) => reference.content_hash).filter(Boolean),
+    reference_snapshot: referenceSnapshot,
     referenceCount: inputs.length,
     lintIssueCount: lintResult.issues.length,
     durationMs: Date.now() - startedAt,
@@ -142,10 +152,10 @@ export async function analyzeStyleProfile(params: {
     operabilityGrade: operability.grade,
   };
 
-  const updated = await commitStyleSchemaMutation(client, {
+  const updated = await commitStyleAnalysis(client, {
     styleId,
     expectedUpdatedAt: style.updated_at,
-    source: "analysis",
+    referenceSnapshot,
     schema: lintResult.schema as unknown as Record<string, unknown>,
     fingerprint: fingerprint as unknown as Record<string, unknown>,
     invariantContract: contract as unknown as Record<string, unknown>,

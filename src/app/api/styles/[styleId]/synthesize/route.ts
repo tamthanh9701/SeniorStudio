@@ -64,7 +64,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   const quota = await enforceAiQuota(request, "brain");
   if (!quota.ok) return quota.response;
 
-  const { data: references } = await supabase.from("style_references").select("id, storage_path, mime_type, byte_size, content_hash").eq("style_id", styleId).order("created_at");
+  const { data: references } = await supabase.from("style_references").select("id, storage_path, mime_type, byte_size, content_hash").eq("style_id", styleId).is("retired_at", null).order("created_at");
   if (!references?.length) return NextResponse.json({ error: { code: "NO_REFERENCES", message: "Upload at least one reference image before synthesizing" } }, { status: 400 });
 
   const service = getServiceClient();

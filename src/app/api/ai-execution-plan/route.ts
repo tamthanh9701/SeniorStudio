@@ -55,8 +55,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ plan });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to resolve execution plan";
-    const code = message.includes("PROMPT_REQUIRED") ? "INVALID_REQUEST" : message.includes("REFERENCE_NOT_FOUND") ? "REFERENCE_NOT_FOUND" : message.includes("REFERENCE_LIMIT_EXCEEDED") ? "REFERENCE_LIMIT_EXCEEDED" : message.includes("STYLE_NOT_ACTIVE") ? "STYLE_NOT_ACTIVE" : message.includes("STYLE_NOT_FOUND") ? "STYLE_NOT_FOUND" : message.includes("PROVIDER_NOT_CONFIGURED") ? "PROVIDER_NOT_CONFIGURED" : message.includes("UNSUPPORTED_SETTINGS") ? "UNSUPPORTED_SETTINGS" : "PLAN_FAILED";
-    const status = code === "STYLE_NOT_ACTIVE" ? 409 : code === "PROVIDER_NOT_CONFIGURED" ? 503 : ["REFERENCE_NOT_FOUND", "STYLE_NOT_FOUND"].includes(code) ? 404 : 400;
-    return NextResponse.json({ error: { code, message } }, { status });
+    const code = [
+      "PROMPT_REQUIRED", "REFERENCE_NOT_FOUND", "REFERENCE_LIMIT_EXCEEDED", "STYLE_NOT_READY",
+      "STYLE_NOT_ACTIVE", "STYLE_NOT_FOUND", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED",
+      "STYLE_DEFINITION_INVALID", "STYLE_CONFLICT", "PROVIDER_NOT_CONFIGURED", "UNSUPPORTED_SETTINGS", "VERSION_CONFLICT",
+    ].find((candidate) => message.includes(candidate)) ?? "PLAN_FAILED";
+    const status = ["STYLE_NOT_ACTIVE", "STYLE_NOT_READY", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED", "STYLE_DEFINITION_INVALID", "STYLE_CONFLICT", "VERSION_CONFLICT"].includes(code)
+      ? 409
+      : code === "PROVIDER_NOT_CONFIGURED"
+        ? 503
+        : ["REFERENCE_NOT_FOUND", "STYLE_NOT_FOUND"].includes(code)
+          ? 404
+          : 400;
+    const errorCode = code === "PROMPT_REQUIRED" ? "INVALID_REQUEST" : code;
+    return NextResponse.json({ error: { code: errorCode, message } }, { status });
   }
 }

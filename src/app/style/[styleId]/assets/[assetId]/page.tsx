@@ -2,118 +2,279 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Download, Paintbrush } from "lucide-react";
+import { Download, GitCompare, Info, Paintbrush, Sparkles } from "lucide-react";
 import { createClient } from "@/supabase/server";
 import { getSignedUrl } from "@/lib/assets/service";
+import ComparisonSlider from "@/components/editor/ComparisonSlider";
+import VersionHistory from "@/components/editor/VersionHistory";
+import VersionReviewActions from "@/components/editor/VersionReviewActions";
+
+/** Reads an optional string out of the untyped jsonb provenance columns. */
+const text = (value: unknown) => (typeof value === "string" && value.length > 0 ? value : null);
+
+type VersionRow = {
+  id: string;
+  storage_path: string;
+  width: number | null;
+  height: number | null;
+  prompt: string | null;
+  parent_version_id: string | null;
+  metadata: Record<string, unknown> | null;
+  style_generation: Record<string, unknown> | null;
+  source: string;
+  created_at: string;
+};
+
+type SignedVersion = VersionRow & { signedUrl: string | null };
+
+/** A resolved parent keeps the asset it belongs to so cross-asset sources stay linkable. */
+type ResolvedParent = SignedVersion & { asset_id: string };
 
 export default async function StyleAssetDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ styleId: string; assetId: string }>;
+  searchParams: Promise<{ version?: string; review?: string }>;
 }) {
   const { styleId, assetId } = await params;
+  const { version: versionParam, review: reviewParam } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: asset } = await supabase
-    .from("assets")
-    .select("id, name, kind, current_version_id, created_at")
-    .eq("id", assetId)
-    .eq("style_id", styleId)
-    .single();
+  const [{ data: asset }, { data: style }] = await Promise.all([
+    supabase
+      .from("assets")
+      .select("id, name, current_version_id, created_at")
+      .eq("id", assetId)
+      .eq("style_id", styleId)
+      .single(),
+    supabase.from("styles").select("id, name").eq("id", styleId).single(),
+  ]);
   if (!asset) notFound();
+  const styleName = text(style?.name) ?? "Style";
 
-  const { data: versions } = await supabase
+  const { data: versionRows } = await supabase
     .from("asset_versions")
-    .select("id, storage_path, width, height, prompt, parent_version_id, metadata, source, created_at")
+    .select("id, storage_path, width, height, prompt, parent_version_id, metadata, style_generation, source, created_at")
     .eq("asset_id", assetId)
     .order("created_at", { ascending: true });
 
-  const signedVersions = await Promise.all(
-    (versions ?? []).map(async (version) => ({
-      ...version,
-      signedUrl: await getSignedUrl(supabase, version.storage_path),
-    })),
+  const sign = async (storagePath: string) => {
+    try {
+      return await getSignedUrl(supabase, storagePath);
+    } catch {
+      return null;
+    }
+  };
+  const versions: SignedVersion[] = await Promise.all(
+    ((versionRows ?? []) as VersionRow[]).map(async (version) => ({ ...version, signedUrl: await sign(version.storage_path) })),
   );
-  const currentVersion = signedVersions.find((v) => v.id === asset.current_version_id) ?? signedVersions.at(-1) ?? null;
-  const parentVersion = currentVersion?.parent_version_id
-    ? signedVersions.find((v) => v.id === currentVersion.parent_version_id) ?? null
-    : null;
 
-  const sidebar = (
-    <div className="space-y-3 p-4">
-      <h2 className="font-semibold">Asset Info</h2>
-      <div className="space-y-2 text-sm text-[#98a2b3]">
-        <p><span className="text-[#667085]">Name:</span> {asset.name}</p>
-        <p><span className="text-[#667085]">Created:</span> {new Date(asset.created_at).toLocaleString()}</p>
-        {currentVersion?.prompt && (
-          <div>
-            <p className="text-[#667085]">Prompt:</p>
-            <p className="mt-1 whitespace-pre-wrap text-xs">{currentVersion.prompt}</p>
-          </div>
-        )}
-        {parentVersion && (
-          <div>
-            <p className="text-[#667085]">Source:</p>
-            <Link href={`/style/${styleId}/assets/${assetId}`} className="text-xs text-[#7c5cff] hover:underline">parent version</Link>
-          </div>
-        )}
-        <p><span className="text-[#667085]">Versions:</span> {signedVersions.length}</p>
-      </div>
-    </div>
-  );
+  const currentVersion = versions.find((version) => version.id === asset.current_version_id) ?? null;
+  const requestedVersion = versionParam ? versions.find((version) => version.id === versionParam) ?? null : null;
+  const selected = requestedVersion ?? currentVersion ?? versions.at(-1) ?? null;
+  const versionFallback = Boolean(versionParam) && requestedVersion === null;
+  const candidate = Boolean(selected) && selected?.id !== asset.current_version_id;
+  const reviewing = reviewParam === "1" || reviewParam === "true";
+
+  // The comparison is always against this version's exact recorded parent, which
+  // may live on another asset of the same style for historical cross-asset results.
+  let parent: ResolvedParent | null = null;
+  let comparisonNotice: string | null = null;
+  if (selected) {
+    if (!selected.parent_version_id) {
+      comparisonNotice = "This version has no parent version, so there is nothing to compare it against.";
+    } else {
+      const { data: parentRow } = await supabase
+        .from("asset_versions")
+        .select("id, storage_path, width, height, prompt, parent_version_id, metadata, style_generation, source, created_at, asset_id")
+        .eq("id", selected.parent_version_id)
+        .maybeSingle();
+      if (!parentRow) {
+        comparisonNotice = "The parent version recorded for this edit is no longer available, so the comparison is disabled.";
+      } else {
+        const { data: parentAsset } = await supabase
+          .from("assets")
+          .select("id, style_id")
+          .eq("id", parentRow.asset_id)
+          .maybeSingle();
+        if (!parentAsset || parentAsset.style_id !== styleId) {
+          comparisonNotice = "The parent version belongs to a different style, so the comparison is disabled.";
+        } else {
+          parent = { ...(parentRow as ResolvedParent), signedUrl: await sign(parentRow.storage_path) };
+        }
+      }
+    }
+  }
+  const comparisonAvailable = Boolean(selected?.signedUrl && parent?.signedUrl);
+  if (parent && !parent.signedUrl) comparisonNotice = "The parent version preview could not be loaded, so the comparison is disabled.";
+
+  const metadata = selected?.metadata ?? null;
+  const packet = selected?.style_generation ?? null;
+  const provider = text(metadata?.provider);
+  const model = text(metadata?.model);
+  const operation = text(metadata?.operation);
+  const styleRevision = text(packet?.style_revision);
+  const referenceSnapshot = packet?.reference_snapshot;
+  const referenceCount = Array.isArray(referenceSnapshot) ? referenceSnapshot.length : null;
+  const packetMetadata = packet?.metadata && typeof packet.metadata === "object" ? (packet.metadata as Record<string, unknown>) : null;
+  const adoptedCurrentStyle = packetMetadata?.style_provenance === "current_style_fallback";
+  const sourceVersionId = text(metadata?.source_version_id) ?? selected?.parent_version_id ?? null;
+  const sourceAssetId = text(metadata?.source_asset_id) ?? (parent && parent.id === sourceVersionId ? parent.asset_id : null);
+  const sourceHref = sourceVersionId && sourceAssetId ? `/style/${styleId}/assets/${sourceAssetId}?version=${sourceVersionId}` : null;
+
+  const provenance: Array<{ label: string; value: string }> = [];
+  if (provider) provenance.push({ label: "Provider", value: provider });
+  if (model) provenance.push({ label: "Model", value: model });
+  if (operation) provenance.push({ label: "Operation", value: operation });
+  if (styleRevision) provenance.push({ label: "Style revision", value: styleRevision.slice(0, 8) });
+  if (referenceCount !== null) provenance.push({ label: "References", value: `${referenceCount} used` });
+
+  const historyVersions = versions.map((version) => ({
+    id: version.id,
+    source: version.source,
+    prompt: version.prompt,
+    created_at: version.created_at,
+    parent_version_id: version.parent_version_id,
+    metadata: {
+      provider: text(version.metadata?.provider) ?? undefined,
+      model: text(version.metadata?.model) ?? undefined,
+      operation: text(version.metadata?.operation) ?? undefined,
+    },
+    signedUrl: version.signedUrl,
+  }));
+
+  const assetHref = `/style/${styleId}/assets/${assetId}`;
 
   return (
-    <div className="h-dvh overflow-hidden bg-[#0b0d10] text-[#f5f7fa]">
-      <header className="flex h-14 items-center gap-4 border-b border-white/10 bg-[#111419] px-4">
-        <Link href={`/style/${styleId}`} className="text-sm text-[#98a2b3] hover:text-white">{styleId}</Link>
-        <span className="text-[#667085]">/</span>
-        <h1 className="truncate font-semibold">{asset.name}</h1>
-        <div className="ml-auto flex gap-2">
-          {currentVersion?.signedUrl && (
-            <a href={currentVersion.signedUrl} download className="flex items-center gap-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20">
-              <Download className="size-3.5" /> Download
+    <div className="h-dvh overflow-hidden bg-[var(--canvas)] text-[var(--text)]">
+      <header className="flex h-14 items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-4">
+        <Link href={`/style/${styleId}`} className="max-w-32 truncate text-sm text-[var(--muted)] hover:text-[var(--text)]">{styleName}</Link>
+        <span className="text-[var(--muted)]">/</span>
+        <h1 className="min-w-0 flex-1 truncate font-semibold">{asset.name}</h1>
+        <div className="flex shrink-0 items-center gap-2">
+          {selected?.signedUrl && (
+            <a href={selected.signedUrl} download className="studio-icon-button" aria-label="Download this version">
+              <Download className="size-4" />
             </a>
           )}
-          <Link href={`/style/${styleId}/assets/${assetId}/edit`} className="flex items-center gap-1 rounded-lg bg-[#7c5cff] px-3 py-1.5 text-xs text-white hover:bg-[#6b4ee0]">
-            <Paintbrush className="size-3.5" /> Inpaint
+          <Link href={`${assetHref}/edit`} aria-label="Edit this image" className={candidate ? "studio-button-secondary" : "studio-button-primary"}>
+            <Paintbrush className="size-4" />
+            <span className="hidden sm:inline">Inpaint</span>
           </Link>
         </div>
       </header>
 
-      <div className="flex h-[calc(100dvh-3.5rem)]">
-        <main className="flex-1 overflow-auto p-6">
-          {currentVersion?.signedUrl ? (
-            <div className="flex justify-center">
-              <img src={currentVersion.signedUrl} alt={asset.name} className="max-h-[70vh] max-w-full rounded-xl object-contain" />
-            </div>
-          ) : (
-            <div className="flex h-64 items-center justify-center text-[#667085]">Preview unavailable</div>
+      <div className="flex h-[calc(100dvh-3.5rem)] flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+        <main className="min-w-0 flex-1 space-y-4 p-4 sm:p-6 xl:overflow-y-auto">
+          {versionFallback && (
+            <p role="status" className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+              <Info className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+              That version is not part of this asset. Showing the current version instead.
+            </p>
           )}
 
-          {signedVersions.length > 1 && (
-            <div className="mt-6">
-              <h3 className="mb-3 text-sm font-medium text-[#98a2b3]">Version History</h3>
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
-                {signedVersions.map((version) => (
-                  <div key={version.id} className={`relative overflow-hidden rounded-lg border ${version.id === currentVersion?.id ? "border-[#7c5cff]" : "border-white/10"}`}>
-                    {version.signedUrl ? (
-                      <img src={version.signedUrl} alt="" className="aspect-square w-full object-cover" />
-                    ) : (
-                      <div className="aspect-square flex items-center justify-center text-[10px] text-[#667085]">-</div>
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 text-center text-[9px] text-white/70">
-                      {version.source}
-                    </div>
-                  </div>
-                ))}
+          {comparisonAvailable && selected && parent ? (
+            <ComparisonSlider
+              beforeUrl={parent.signedUrl as string}
+              afterUrl={selected.signedUrl as string}
+              beforeLabel="Original"
+              afterLabel="Edited"
+              width={selected.width || 800}
+              height={selected.height || 600}
+            />
+          ) : selected?.signedUrl ? (
+            <img src={selected.signedUrl} alt={asset.name} className="mx-auto max-h-[70vh] max-w-full rounded-2xl object-contain" />
+          ) : (
+            <div className="flex h-64 items-center justify-center rounded-2xl border border-[var(--border)] text-[var(--muted)]">Preview unavailable</div>
+          )}
+
+          {comparisonNotice && (
+            <p className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+              <GitCompare className="mt-0.5 size-4 shrink-0 text-[var(--muted)]" />
+              {comparisonNotice}
+            </p>
+          )}
+
+          {reviewing && candidate && selected && (
+            <section aria-label="Review edit" className="studio-card space-y-3 p-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-[var(--accent)]" />
+                <h2 className="font-semibold">Review edit</h2>
               </div>
-            </div>
+              <p className="text-sm text-[var(--muted)]">
+                This edit is a candidate. Keeping it makes it the current version of {asset.name}; until then it stays in history only.
+              </p>
+              <VersionReviewActions assetId={assetId} assetHref={assetHref} versionId={selected.id} currentVersionId={asset.current_version_id ?? null} />
+            </section>
+          )}
+
+          {reviewing && !candidate && selected && (
+            <p role="status" className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+              <Info className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+              You are viewing the current version. The unselected version remains in history.
+            </p>
           )}
         </main>
-        <aside className="hidden w-64 shrink-0 border-l border-white/10 bg-[#111419] xl:block">
-          {sidebar}
+
+        <aside className="w-full shrink-0 divide-y divide-[var(--border)] border-t border-[var(--border)] bg-[var(--panel)] xl:w-72 xl:overflow-y-auto xl:border-l xl:border-t-0">
+          <div className="space-y-2 p-4">
+            <h2 className="font-semibold">Asset info</h2>
+            <div className="space-y-2 text-sm text-[var(--muted)]">
+              <p><span className="text-[var(--muted)]">Name:</span> {asset.name}</p>
+              <p><span className="text-[var(--muted)]">Created:</span> {new Date(asset.created_at).toLocaleString()}</p>
+              <p><span className="text-[var(--muted)]">Versions:</span> {versions.length}</p>
+              {selected?.prompt && (
+                <div>
+                  <p className="text-[var(--muted)]">Prompt:</p>
+                  <p className="mt-1 whitespace-pre-wrap text-xs">{selected.prompt}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(provenance.length > 0 || sourceVersionId || adoptedCurrentStyle) && (
+            <div className="space-y-2 p-4">
+              <h2 className="font-semibold">Edit provenance</h2>
+              <dl className="space-y-2 text-sm text-[var(--muted)]">
+                {provenance.map((row) => (
+                  <div key={row.label}>
+                    <dt className="text-xs uppercase tracking-wide">{row.label}</dt>
+                    <dd className="text-[var(--text)]">{row.value}</dd>
+                  </div>
+                ))}
+                {sourceVersionId && (
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide">Source version</dt>
+                    <dd>
+                      {sourceHref ? (
+                        <Link href={sourceHref} className="text-[var(--accent)] hover:underline">
+                          {sourceVersionId.slice(0, 8)}
+                        </Link>
+                      ) : (
+                        <span className="text-[var(--text)]">{sourceVersionId.slice(0, 8)}</span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              {adoptedCurrentStyle && (
+                <p className="rounded-xl bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] p-2 text-xs text-[var(--warning)]">
+                  The original style of this source could not be recovered; this edit adopted the style that was current when it ran.
+                </p>
+              )}
+            </div>
+          )}
+
+          <VersionHistory
+            versions={historyVersions}
+            currentVersionId={asset.current_version_id ?? null}
+            assetId={assetId}
+            assetHref={assetHref}
+            selectedVersionId={selected?.id ?? null}
+          />
         </aside>
       </div>
     </div>

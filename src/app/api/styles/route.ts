@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { getStyleSetupState } from "@/lib/style/confirmed-definition";
 
 const GetStylesSchema = z.object({
   libraryId: z.string().uuid().optional(),
@@ -21,20 +22,27 @@ function flagDisabled() {
   const libraryId = params.success ? params.data.libraryId : undefined;
   const query = supabase
     .from("styles")
-    .select("id, name, status, created_at, updated_at, library_id, operability, style_references(count)")
+    .select("id, name, status, created_at, updated_at, library_id, operability, analysis_meta, confirmed_definition, style_references(id, retired_at)")
     .order("updated_at", { ascending: false });
   if (libraryId) query.eq("library_id", libraryId);
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: { code: "LOAD_FAILED", message: "Unable to load styles" } }, { status: 500 });
-  const styles = (data ?? []).map((row) => ({
-    id: row.id,
-    name: row.name,
-    status: row.status,
-    referenceCount: row.style_references?.[0]?.count ?? 0,
-    updatedAt: row.updated_at,
-    libraryId: row.library_id,
-    operability: row.operability,
-  }));
+  const styles = (data ?? []).map((row) => {
+    const liveReferences = ((row.style_references ?? []) as Array<{ retired_at: string | null }>).filter((reference) => reference.retired_at === null);
+    return {
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      referenceCount: liveReferences.length,
+      updatedAt: row.updated_at,
+      libraryId: row.library_id,
+      operability: row.operability,
+      setupState: getStyleSetupState(
+        { status: row.status, schema: null, analysis_meta: row.analysis_meta, confirmed_definition: row.confirmed_definition },
+        liveReferences.length,
+      ),
+    };
+  });
   return NextResponse.json({ styles });
 }
 const CreateStyleSchema = z.object({
@@ -56,6 +64,6 @@ const CreateStyleSchema = z.object({
     .select("id, name, status, created_at, updated_at, library_id")
     .single();
   if (error) return NextResponse.json({ error: { code: "CREATE_FAILED", message: error.message } }, { status: 500 });
-  return NextResponse.json({ style: { ...style, referenceCount: 0, libraryId: style.library_id } }, { status: 201 });
+  return NextResponse.json({ style: { ...style, referenceCount: 0, libraryId: style.library_id, setupState: "references" } }, { status: 201 });
 }
 

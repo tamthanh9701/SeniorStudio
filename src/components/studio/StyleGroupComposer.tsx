@@ -1,44 +1,66 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
+import { ChevronDown, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
-import { AiJobSchema } from "@/db/ai-jobs";
+import { AiJobSchema, isTerminalStatus, type AiJob } from "@/db/ai-jobs";
 import { useAiJob } from "@/lib/ai/use-ai-job";
 import { StylePlanPreview } from "@/components/studio/StylePlanPreview";
+import { StudioDialog } from "@/components/studio/StudioDialog";
 import type { ExecutionPlan } from "@/lib/ai/execution-plan";
 
-type Reference = { id: string; content_hash: string | null };
+export type ComposerReference = { id: string; content_hash: string | null; signed_url: string | null };
 type SourceVersion = { id: string; prompt: string | null; metadata: Record<string, unknown> };
 
+type ReadyPlan = ExecutionPlan & { styleRevision: string; compiledPrompt: string; planHash: string; warnings?: string[] };
+type ResolvedPlan = { plan: ReadyPlan; revision: number };
+
+/**
+ * Generation form for one style.
+ *
+ * The confirmed definition supplies the schema and the reference images, so the
+ * user only chooses what to make.  Model and quality stay under Advanced to keep
+ * the primary path to one decision.
+ */
 export default function StyleGroupComposer({
   styleId,
   styleName,
-  schema,
   models,
   references,
+  confirmedRevision,
   sourceVersion,
+  embedded = false,
+  initialJob = null,
+  onSubmitted,
 }: {
   styleId: string;
   styleName: string;
-  schema: Record<string, unknown>;
   models: ModelCatalogEntry[];
-  references: Reference[];
+  references: ComposerReference[];
+  confirmedRevision: string | null;
   sourceVersion: SourceVersion | null;
+  /** Rendered inside the style workspace instead of as a standalone page. */
+  embedded?: boolean;
+  initialJob?: AiJob | null;
+  onSubmitted?: () => void;
 }) {
   const [prompt, setPrompt] = useState(sourceVersion?.prompt ?? "");
-  const [selectedRefs, setSelectedRefs] = useState<string[]>(references.map((r) => r.id));
-  const [modelId, setModelId] = useState(models[0]?.id ?? "");
+  const [modelId, setModelId] = useState(models.find((model) => model.id === "openai/gpt-image-2")?.id ?? models[0]?.id ?? "");
   const [size, setSize] = useState("1024x1024");
   const [quality, setQuality] = useState("auto");
   const [count, setCount] = useState<1 | 2 | 3 | 4>(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [readyPreview, setReadyPreview] = useState<{ plan: ExecutionPlan; inputRevision: number } | null>(null);
-  const { job, setJob } = useAiJob(null);
+  const [readyPlan, setReadyPlan] = useState<ReadyPlan | null>(null);
+  const [readyRevision, setReadyRevision] = useState(-1);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submittedHere, setSubmittedHere] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const { job, setJob } = useAiJob(initialJob);
   const inputRevisionRef = useRef(0);
   const busyRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const confirmRef = useRef<HTMLElement>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -46,19 +68,23 @@ export default function StyleGroupComposer({
     return () => { mountedRef.current = false; controllerRef.current?.abort(); };
   }, []);
 
-  const selectedModel = useMemo(() => models.find((m) => m.id === modelId), [models, modelId]);
+  const selectedModel = useMemo(() => models.find((model) => model.id === modelId), [models, modelId]);
   const operation = sourceVersion ? "image_to_image" as const : "text_to_image" as const;
-  const refIds = selectedRefs;
+  const running = job !== null && !isTerminalStatus(job.status);
 
-  const invalidate = () => { inputRevisionRef.current += 1; setReadyPreview(null); };
-
-  const toggleRef = useCallback((id: string) => {
-    setSelectedRefs((prev) => prev.includes(id) ? prev.filter((refId) => refId !== id) : [...prev, id]);
-    invalidate();
+  /**
+   * Any change invalidates consent: the plan the user approved no longer
+   * matches.  A monotonic revision is used rather than a value snapshot because
+   * the change handler runs before the new state is committed.
+   */
+  const invalidate = useCallback(() => {
+    inputRevisionRef.current += 1;
+    setReadyPlan(null);
+    setConfirmOpen(false);
   }, []);
 
-  const previewPlan = async () => {
-    if (!prompt.trim() || !selectedModel || busyRef.current) return false;
+  const resolvePlan = async (): Promise<ResolvedPlan | null> => {
+    if (!prompt.trim() || !selectedModel || busyRef.current) return null;
     const revision = inputRevisionRef.current;
     busyRef.current = true;
     setError(null);
@@ -69,30 +95,36 @@ export default function StyleGroupComposer({
       const response = await fetch("/api/ai-execution-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation, requestedModelId: modelId, styleId, sourceVersionId: sourceVersion?.id, prompt: prompt.trim(), costMode: "strict_style", count, size, quality, referenceIds: refIds, preserveRequestedModel: true }),
+        body: JSON.stringify({ operation, requestedModelId: modelId, styleId, sourceVersionId: sourceVersion?.id, prompt: prompt.trim(), costMode: "strict_style", count, size, quality, preserveRequestedModel: true }),
         signal: controller.signal,
       });
       const body = await response.json().catch(() => ({}));
+      if (!mountedRef.current || inputRevisionRef.current !== revision) return null;
       if (!response.ok) {
-        setError(`${body.error?.code ?? "PLAN_FAILED"}: ${body.error?.message ?? "Unable to resolve execution plan"}`);
-        return false;
+        setError(`${body.error?.code ?? "PLAN_FAILED"}: ${body.error?.message ?? "Unable to resolve the generation plan"}`);
+        return null;
       }
-      if (!mountedRef.current || inputRevisionRef.current !== revision) return false;
-      setReadyPreview({ plan: body.plan, inputRevision: revision });
-      return true;
+      return { plan: body.plan as ReadyPlan, revision };
     } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") return false;
-      if (!mountedRef.current) return false;
-      setError("NETWORK_ERROR: Unable to resolve execution plan");
-      return false;
+      if (caught instanceof DOMException && caught.name === "AbortError") return null;
+      if (mountedRef.current) setError("NETWORK_ERROR: Unable to resolve the generation plan");
+      return null;
     } finally {
       busyRef.current = false;
     }
   };
 
+  const review = async () => {
+    const resolved = await resolvePlan();
+    if (!resolved) return;
+    setReadyPlan(resolved.plan);
+    setReadyRevision(resolved.revision);
+    setConfirmOpen(true);
+  };
+
   const submit = async () => {
-    if (!readyPreview || busyRef.current) return;
-    if (readyPreview.inputRevision !== inputRevisionRef.current) { invalidate(); return; }
+    if (!readyPlan || busyRef.current) return;
+    if (readyRevision !== inputRevisionRef.current) { invalidate(); return; }
     busyRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -104,112 +136,182 @@ export default function StyleGroupComposer({
           operation,
           model: modelId,
           prompt: prompt.trim(),
-          referenceIds: refIds,
           sourceVersionId: sourceVersion?.id ?? undefined,
           size,
           quality,
           count,
           costMode: "strict_style",
-          consent: { planHash: readyPreview.plan.planHash },
+          consent: { planHash: readyPlan.planHash },
         }),
       });
       const jobBody = await jobRes.json().catch(() => ({}));
-      if (jobRes.status === 409 && jobBody.error?.plan) {
-        setError("Plan changed; please preview again");
-        setReadyPreview(null);
-        return;
-      }
       if (!jobRes.ok) {
-        setError(`${jobBody.error?.code ?? "SUBMIT_FAILED"}: ${jobBody.error?.message ?? "Unable to create image"}`);
+        // Consent is never renewed automatically: the user must see the new plan.
+        setConfirmOpen(false);
+        setReadyPlan(null);
+        setError(`${jobBody.error?.code ?? "SUBMIT_FAILED"}: ${jobBody.error?.message ?? "Unable to start generation"}`);
         return;
       }
       const parsed = AiJobSchema.safeParse(jobBody.job);
-      if (parsed.success) setJob(parsed.data);
-      else setError("Invalid job response from server");
+      if (parsed.success) { setJob(parsed.data); setSubmittedHere(true); onSubmitted?.(); }
+      else setError("The server returned an unexpected job response");
     } catch {
-      setError("NETWORK_ERROR: Unable to create image");
+      setError("NETWORK_ERROR: Unable to start generation");
     } finally {
       busyRef.current = false;
       setSubmitting(false);
     }
   };
 
-  const terminal = job ? job.status === "succeeded" || job.status === "failed" || job.status === "canceled" : false;
-
-  if (job) {
-    if (job.status === "succeeded") {
-      const results = Array.isArray(job.output?.results) ? job.output.results : [];
-      const firstResult = results[0];
-      const outputAssetId = firstResult && typeof firstResult === "object" && "asset_id" in firstResult && typeof firstResult.asset_id === "string" ? firstResult.asset_id : null;
-      if (outputAssetId && typeof window !== "undefined") {
-        window.location.assign(`/style/${styleId}/assets/${outputAssetId}`);
-      }
-    }
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-[var(--canvas)] text-[var(--text)]">
-        <div className="text-center">
-          {terminal ? (
-            job.status === "succeeded" ? (
-              <>
-                <p className="text-sm text-[var(--muted)]">Image created successfully.</p>
-                <a href={`/style/${styleId}`} className="mt-4 inline-block text-sm text-[var(--accent)] hover:underline">← Back to gallery</a>
-              </>
-            ) : (
-              <>
-                <p role="alert" className="text-sm text-[var(--danger)]">{job.error_message || `Image ${job.status === "canceled" ? "was canceled" : "generation failed"}`}</p>
-                <a href={`/style/${styleId}`} className="mt-4 inline-block text-sm text-[var(--accent)] hover:underline">← Back to gallery to retry</a>
-              </>
-            )
-          ) : (
-            <>
-              <LoaderCircle className="mx-auto size-8 animate-spin text-[var(--accent)]" />
-              <p className="mt-4 text-sm text-[var(--muted)]">Generating image…</p>
-              <p className="mt-2 text-xs text-[var(--muted)]">Job {job.id.slice(0, 8)}</p>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // The gallery above is the visual result surface; this only links to the
+  // images this job produced, because the job output carries ids, not previews.
+  const resultAssetIds = (Array.isArray(job?.output?.results) ? job.output.results as Array<Record<string, unknown>> : [])
+    .map((result) => (typeof result.asset_id === "string" ? result.asset_id : null))
+    .filter((value): value is string => value !== null);
 
   return (
-    <div className="min-h-dvh bg-[var(--canvas)] text-[var(--text)]">
-      <header className="flex h-14 items-center gap-4 border-b border-[var(--border)] bg-[var(--panel)] px-4">
-        <a href={`/style/${styleId}`} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">{styleName}</a>
-        <span className="text-[var(--muted)]">/</span>
-        <h1 className="font-semibold">Create new image</h1>
-        {sourceVersion && <span className="ml-2 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-xs text-[var(--accent)]">Variant</span>}
-      </header>
-      <div className="mx-auto max-w-2xl space-y-6 p-5 sm:p-8">
+    <div className={embedded ? "space-y-5" : "min-h-dvh bg-[var(--canvas)] text-[var(--text)]"}>
+      {!embedded && (
+        <header className="flex h-14 items-center gap-4 border-b border-[var(--border)] bg-[var(--panel)] px-4">
+          <a href={`/style/${styleId}`} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">{styleName}</a>
+          <span className="text-[var(--muted)]">/</span>
+          <h1 className="font-semibold">Create new image</h1>
+          {sourceVersion && <span className="ml-2 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-xs text-[var(--accent)]">Variant</span>}
+        </header>
+      )}
+      <div className={embedded ? "space-y-5" : "mx-auto max-w-2xl space-y-6 p-5 sm:p-8"}>
         <div>
-          <label className="studio-label">Model</label>
-          <select className="studio-control w-full" value={modelId} onChange={(e) => { setModelId(e.target.value); invalidate(); const m = models.find((x) => x.id === e.target.value); if (m) { setSize(m.sizes[0]); setQuality(m.qualities[0]); } }}>
-            <option value="" disabled>Select a model</option>
-            {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div><label className="studio-label">Size</label><select className="studio-control w-full" value={size} onChange={(e) => { setSize(e.target.value); invalidate(); }}>{selectedModel?.sizes.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
-          <div><label className="studio-label">Quality</label><select className="studio-control w-full" value={quality} onChange={(e) => { setQuality(e.target.value); invalidate(); }}>{selectedModel?.qualities.map((q) => <option key={q} value={q}>{q}</option>)}</select></div>
-          <div><label className="studio-label">Count</label><select className="studio-control w-full" value={count} onChange={(e) => { setCount(Number(e.target.value) as 1 | 2 | 3 | 4); invalidate(); }}>{[1, 2, 3, 4].filter((n) => n <= (selectedModel?.maxCount ?? 4)).map((n) => <option key={n} value={n}>{n}</option>)}</select></div>
-        </div>
-        <div>
-          <label className="studio-label">References ({selectedRefs.length}/{references.length})</label>
-          <div className="mt-2 grid grid-cols-4 gap-2">
-            {references.map((ref) => <button key={ref.id} type="button" aria-pressed={selectedRefs.includes(ref.id)} onClick={() => toggleRef(ref.id)} className={`aspect-square rounded-lg border-2 transition ${selectedRefs.includes(ref.id) ? "border-[var(--accent)] bg-[var(--accent-subtle)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)]"}`}><span className="text-[10px] text-[var(--muted)]">{ref.id.slice(0, 8)}</span></button>)}
-          </div>
-        </div>
-        <div>
-          <label className="studio-label" htmlFor="style-generation-prompt">Prompt</label>
-          <textarea id="style-generation-prompt" className="studio-control min-h-24 w-full" placeholder={operation === "image_to_image" ? "Describe the variation content…" : "Describe the image you want to create…"} value={prompt} onChange={(e) => { setPrompt(e.target.value); invalidate(); }} maxLength={8000} />
+          <label className="studio-label" htmlFor="style-generation-prompt">What would you like to create?</label>
+          <textarea
+            id="style-generation-prompt"
+            className="studio-control mt-1 min-h-24 w-full"
+            placeholder={operation === "image_to_image" ? "Describe how this variation should differ…" : "Describe the image you want to create…"}
+            value={prompt}
+            onChange={(event) => { setPrompt(event.target.value); invalidate(); }}
+            maxLength={8000}
+          />
           <p className="mt-1 text-right text-xs text-[var(--muted)]">{prompt.length}/8000</p>
         </div>
-        {readyPreview && <StylePlanPreview plan={readyPreview.plan} />}
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="studio-label" htmlFor="style-generation-size">Aspect ratio</label>
+            <select id="style-generation-size" className="studio-control w-full" value={size} onChange={(event) => { setSize(event.target.value); invalidate(); }}>
+              {(selectedModel?.sizes ?? ["1024x1024"]).map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="studio-label" htmlFor="style-generation-count">Number of images</label>
+            <select id="style-generation-count" className="studio-control w-full" value={count} onChange={(event) => { setCount(Number(event.target.value) as 1 | 2 | 3 | 4); invalidate(); }}>
+              {[1, 2, 3, 4].filter((option) => option <= (selectedModel?.maxCount ?? 4)).map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <details className="studio-card p-4" open={advancedOpen} onToggle={(event) => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium"><ChevronDown className="size-4" aria-hidden /> Advanced</summary>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="studio-label" htmlFor="style-generation-model">Model</label>
+              <select id="style-generation-model" className="studio-control w-full" value={modelId} onChange={(event) => { const next = models.find((model) => model.id === event.target.value); if (!next) return; setModelId(next.id); setSize(next.sizes[0]); setQuality(next.qualities[0]); invalidate(); }}>
+                <option value="" disabled>Select a model</option>
+                {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="studio-label" htmlFor="style-generation-quality">Quality</label>
+              <select id="style-generation-quality" className="studio-control w-full" value={quality} onChange={(event) => { setQuality(event.target.value); invalidate(); }}>
+                {(selectedModel?.qualities ?? ["auto"]).map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <div className="studio-card p-4">
+          <p className="studio-label">Style references used</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            These images define rendering, palette, lighting and materials — not the subject you asked for.
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {references.map((reference) => (
+              <li key={reference.id} className="size-16 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-hover)]">
+                {reference.signed_url
+                  ? <img src={reference.signed_url} alt="Style reference" className="h-full w-full object-cover" />
+                  : <span className="flex h-full items-center justify-center px-1 text-center text-[10px] text-[var(--muted)]">Preview unavailable</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+
         {error && <p role="alert" className="text-xs text-[var(--danger)]">{error}</p>}
-        <button onClick={readyPreview ? submit : () => void previewPlan()} disabled={!prompt.trim() || !selectedModel || submitting || busyRef.current} className="studio-button-primary w-full">
-          {busyRef.current ? <><LoaderCircle className="size-4 animate-spin" /> {readyPreview ? "Generating…" : "Previewing plan…"}</> : readyPreview ? "Create image" : "Preview plan"}
+
+        {running && job && (
+          <p aria-live="polite" className="flex items-center gap-2 text-sm text-[var(--muted)]">
+            <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Generating — this can take a minute.
+          </p>
+        )}
+
+        {job && !running && (
+          <div className="space-y-3">
+            {job.status === "succeeded" ? (
+              <>
+                <p className="text-sm text-[var(--success)]">
+                  {submittedHere ? "Image created. It is in the gallery above." : "Your last generation finished. It is in the gallery above."}
+                </p>
+                {resultAssetIds.length > 0 && (
+                  <ul className="flex flex-wrap gap-2">
+                    {resultAssetIds.map((assetId, index) => (
+                      <li key={assetId}>
+                        <a href={`/style/${styleId}/assets/${assetId}`} className="studio-button-secondary min-h-11 px-3 text-xs">
+                          View image {index + 1}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <p role="alert" className="text-sm text-[var(--danger)]">
+                {job.error_message || (job.status === "canceled" ? "Generation was canceled." : "Generation failed.")}
+                {" "}{submittedHere ? "Your description is still here — try again." : ""}
+              </p>
+            )}
+          </div>
+        )}
+
+        <button onClick={() => void review()} disabled={!prompt.trim() || !selectedModel || submitting || running || busyRef.current || !confirmedRevision} className="studio-button-primary w-full">
+          {busyRef.current ? <><LoaderCircle className="size-4 animate-spin" /> Preparing…</> : "Generate"}
         </button>
+        {!confirmedRevision && <p className="text-xs text-[var(--muted)]">Confirm this style's references and analysis before generating images.</p>}
       </div>
+
+      <StudioDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        label="Confirm generation"
+        initialFocusRef={confirmRef}
+        dismissible
+        className="studio-card w-full max-w-lg p-6"
+        style={{ position: "fixed" } as React.CSSProperties}
+      >
+        <div ref={confirmRef as React.RefObject<HTMLDivElement>} className="space-y-4">
+          <h2 className="font-semibold">Confirm generation</h2>
+          <dl className="space-y-1 text-sm text-[var(--muted)]">
+            <div className="flex justify-between gap-4"><dt>Model</dt><dd className="text-[var(--text)]">{selectedModel?.label ?? modelId}</dd></div>
+            <div className="flex justify-between gap-4"><dt>References</dt><dd className="text-[var(--text)]">{references.length}</dd></div>
+            <div className="flex justify-between gap-4"><dt>Images</dt><dd className="text-[var(--text)]">{count} · {size} · {quality}</dd></div>
+          </dl>
+          {readyPlan && <StylePlanPreview plan={readyPlan} />}
+          <p className="text-xs text-[var(--muted)]">Generation is billed by your provider for each image.</p>
+          {error && <p role="alert" className="text-xs text-[var(--danger)]">{error}</p>}
+          <div className="flex gap-2">
+            <button className="studio-button-secondary flex-1" onClick={() => setConfirmOpen(false)} disabled={submitting}>Cancel</button>
+            <button className="studio-button-primary flex-1" onClick={() => void submit()} disabled={submitting}>
+              {submitting ? <><LoaderCircle className="size-4 animate-spin" /> Starting…</> : "Confirm generation"}
+            </button>
+          </div>
+        </div>
+      </StudioDialog>
     </div>
   );
 }

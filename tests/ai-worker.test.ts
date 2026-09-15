@@ -129,7 +129,10 @@ describe("processAiJob", () => {
       return { error: null };
     });
     const client = supabaseClient();
-    await expect(processAiJob(client, makeJob(), WORKER_ID)).rejects.toThrow();
+    // An aborted persistence is a definite failure: the uploaded objects are
+    // removed and the job is failed, not left leased by a crashing worker.
+    const result = await processAiJob(client, makeJob(), WORKER_ID);
+    expect(result).toBe("failed");
     expect(mockRemove).toHaveBeenCalled();
   });
 

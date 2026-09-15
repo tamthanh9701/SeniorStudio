@@ -10,6 +10,7 @@ vi.mock("../src/supabase/server", () => ({
   getServiceClient: vi.fn(() => serviceClient),
 }));
 
+import { createEmptyPrompt } from "../src/lib/style/prompt-schema";
 import { GET, POST } from "../src/app/api/styles/route";
 import { DELETE as deleteStyle, GET as getStyle, PATCH as patchStyle } from "../src/app/api/styles/[styleId]/route";
 import { POST as uploadReference } from "../src/app/api/styles/[styleId]/references/route";
@@ -17,7 +18,7 @@ import { POST as uploadReference } from "../src/app/api/styles/[styleId]/referen
 
 function builder(final: unknown, overrides: Record<string, unknown> = {}) {
   const node: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "insert", "update", "delete"]) {
+  for (const method of ["select", "eq", "is", "order", "insert", "update", "delete"]) {
     node[method] = vi.fn(() => node);
   }
   node.single = vi.fn(async () => final);
@@ -31,13 +32,22 @@ function builder(final: unknown, overrides: Record<string, unknown> = {}) {
 let client: Record<string, unknown>;
 const serviceClient = { storage: { from: vi.fn() } };
 
+// PostgREST returns a set for composite-returning functions, so callers use
+// .single() to unwrap one row; the mock mirrors both await shapes.
+function rpcNode(final: unknown) {
+  const node: Record<string, unknown> = {};
+  node.single = vi.fn(async () => final);
+  node.then = (onFulfilled: (value: unknown) => unknown) => Promise.resolve(final).then(onFulfilled);
+  return node;
+}
+
 function jsonRequest(url: string, body?: unknown, method = "POST") {
   return new Request(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn(async () => ({ data: { id: "s1", status: "active" }, error: null })) };
+  client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn(() => rpcNode({ data: { id: "s1", status: "active" }, error: null })) };
 });
 
 describe("GET /api/styles", () => {
@@ -47,15 +57,43 @@ describe("GET /api/styles", () => {
     expect(response.status).toBe(401);
   });
 
-  it("maps reference counts into the lightweight list", async () => {
+  it("counts only live references and reports the setup state", async () => {
     (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      order: vi.fn(async () => ({ data: [{ id: "s1", name: "A", status: "active", updated_at: "2026-01-01", library_id: null, style_references: [{ count: 3 }] }], error: null })),
+      order: vi.fn(async () => ({
+        data: [{
+          id: "s1", name: "A", status: "active", updated_at: "2026-01-01", library_id: null,
+          analysis_meta: { analyzedAt: "2026-01-01", reference_snapshot: [{ id: "r1", content_hash: "h" }] },
+          confirmed_definition: {
+            definition_version: 1, style_revision: "11111111-1111-4111-8111-111111111111",
+            schema_snapshot: createEmptyPrompt("A"),
+            reference_snapshot: [{ id: "22222222-2222-4222-8222-222222222222", content_hash: "a".repeat(64) }],
+            confirmed_at: "2026-01-01T00:00:00.000Z",
+          },
+          style_references: [
+            { id: "r1", retired_at: null },
+            { id: "r2", retired_at: null },
+            { id: "r3", retired_at: "2026-01-02T00:00:00.000Z" },
+          ],
+        }],
+        error: null,
+      })),
     });
     const response = await GET(new Request("http://localhost/api/styles"));
     const body = await response.json();
-    expect(body.styles[0]).toMatchObject({ id: "s1", referenceCount: 3 });
+    expect(body.styles[0]).toMatchObject({ id: "s1", referenceCount: 2, setupState: "ready" });
+  });
+
+  it("reports references as the next step while a style is unconfirmed", async () => {
+    (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn(async () => ({ data: [{ id: "s1", name: "A", status: "draft", updated_at: "2026-01-01", library_id: null, analysis_meta: {}, confirmed_definition: null, style_references: [] }], error: null })),
+    });
+    const response = await GET(new Request("http://localhost/api/styles"));
+    const body = await response.json();
+    expect(body.styles[0]).toMatchObject({ id: "s1", referenceCount: 0, setupState: "references" });
   });
 });
 
@@ -87,28 +125,41 @@ describe("PATCH /api/styles/[styleId]", () => {
     expect(response.status).toBe(200);
   });
 
-  it("enforces the activation gate: no analysis → STYLE_NOT_READY", async () => {
+  it("requires the observed timestamp so confirmation cannot publish unseen changes", async () => {
     (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: {}, fingerprint: null, invariant_contract: null, analysis_meta: {} } })),
+      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: {}, updated_at: "2026-01-01T00:00:00.000Z" } })),
     });
     const response = await patchStyle(jsonRequest("http://x", { status: "active" }, "PATCH"), { params: Promise.resolve({ styleId: "s1" }) });
     const body = await response.json();
     expect(response.status).toBe(400);
-    expect(body.error.code).toBe("STYLE_NOT_READY");
+    expect(body.error.code).toBe("INVALID_REQUEST");
   });
 
-  it("activates when analysis meta and fingerprint are present", async () => {
-    (client.from as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+  it("surfaces a stale analysis instead of confirming it", async () => {
+    (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: { style_name: "x" }, fingerprint: { v: 1 }, invariant_contract: { v: 1 }, analysis_meta: { analyzedAt: "2026-01-01" }, operability: { grade: "production_ready" } } })),
-      update: vi.fn().mockReturnThis(),
-      single: vi.fn(async () => ({ data: { id: "s1", status: "active" }, error: null })),
-    }));
-    const response = await patchStyle(jsonRequest("http://x", { status: "active" }, "PATCH"), { params: Promise.resolve({ styleId: "s1" }) });
+      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: {}, updated_at: "2026-01-01T00:00:00.000Z" } })),
+    });
+    (client.rpc as ReturnType<typeof vi.fn>).mockImplementationOnce(() => rpcNode({ data: null, error: { message: "STYLE_ANALYSIS_STALE" } }));
+    const response = await patchStyle(jsonRequest("http://x", { status: "active", expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }, "PATCH"), { params: Promise.resolve({ styleId: "s1" }) });
+    const body = await response.json();
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("STYLE_ANALYSIS_STALE");
+  });
+
+  it("confirms through the definition RPC with the observed timestamp", async () => {
+    (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn(async () => ({ data: { id: "s1", status: "draft", schema: { style_name: "x" }, updated_at: "2026-01-01T00:00:00.000Z" } })),
+    });
+    const response = await patchStyle(jsonRequest("http://x", { status: "active", expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }, "PATCH"), { params: Promise.resolve({ styleId: "s1" }) });
     expect(response.status).toBe(200);
+    const call = (client.rpc as ReturnType<typeof vi.fn>).mock.calls.find(([name]) => name === "confirm_style_definition");
+    expect(call?.[1]).toEqual({ p_style_id: "s1", p_expected_updated_at: "2026-01-01T00:00:00.000Z" });
   });
 });
 
@@ -146,11 +197,11 @@ describe("POST /api/styles/[styleId]/references", () => {
       if (table === "styles") return builder({ data: { id: "s1", workspace_id: "ws-1" }, error: null });
       if (table === "style_references") {
         const node = builder({ data: null, error: null });
-        // Count query awaits the .eq() result; insert query awaits the chain or .single().
+        // Count query awaits the .eq() result; the insert path goes through the RPC.
         node.select = vi.fn((_columns?: unknown, options?: { count?: string }) => {
           if (options?.count === "exact") {
             const counted = builder({ count: refCount, error: null });
-            return Object.assign(counted, { eq: vi.fn(() => counted) });
+            return Object.assign(counted, { eq: vi.fn(() => counted), is: vi.fn(() => counted) });
           }
           return node;
         });
@@ -189,6 +240,7 @@ describe("POST /api/styles/[styleId]/references", () => {
 
   it("removes the stored object when the insert fails", async () => {
     stubUploads(0, { data: null, error: { message: "db down" } });
+    (client.rpc as ReturnType<typeof vi.fn>).mockImplementation(() => rpcNode({ data: null, error: { message: "db down" } }));
     const upload = vi.fn(async () => ({ error: null }));
     const remove = vi.fn(async () => ({ error: null }));
     serviceClient.storage.from.mockReturnValue({ upload, remove });

@@ -16,7 +16,7 @@ import { StyleError } from "../src/lib/style/errors";
 // single/maybeSingle resolve to `final`.
 function builder(final: unknown) {
   const node: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "insert", "update", "delete"]) {
+  for (const method of ["select", "eq", "is", "order", "insert", "update", "delete"]) {
     node[method] = vi.fn(() => node);
   }
   node.single = vi.fn(async () => final);
@@ -91,9 +91,12 @@ describe("analyzeStyleProfile", () => {
     stubTables({ style: { id: "style-1", name: "Test Style", status: "draft", schema: null, analysis_meta: {} }, refs: [REF_ROW], updateFinal: { id: "style-1", status: "draft", schema: JSON.parse(VALID_SCHEMA), analysis_meta: { provider: "google" } } });
     const updated = await analyzeStyleProfile({ styleId: "style-1", client: client as never });
     expect((updated.schema as Record<string, unknown>).style_name).toBe("Test Style");
-    // The service computes analysis_meta; the mock echoes the persisted row.
-    const updateCall = (client.from as ReturnType<typeof vi.fn>).mock.calls.filter(([table]) => table === "styles").length;
-    expect(updateCall).toBeGreaterThan(0);
+    // Persisting must record the exact reference set the provider analysed, so a
+    // later add/retire is detectable as stale.
+    const commit = (client.rpc as ReturnType<typeof vi.fn>).mock.calls.find(([name]) => name === "commit_style_analysis");
+    expect(commit).toBeTruthy();
+    expect(commit![1].p_reference_snapshot).toEqual([{ id: "ref-1", content_hash: "abc" }]);
+    expect(commit![1].p_style_fields.analysis_meta.reference_snapshot).toEqual([{ id: "ref-1", content_hash: "abc" }]);
   });
 
   it("throws NO_REFERENCES when the style has no rows", async () => {
@@ -122,6 +125,7 @@ describe("analyzeStyleProfile", () => {
     });
     await expect(analyzeStyleProfile({ styleId: "style-1", client: client as never })).rejects.toMatchObject({ code: "STYLE_ANALYSIS_UNPARSED" });
     expect(updateSpy).not.toHaveBeenCalled();
+    expect((client.rpc as ReturnType<typeof vi.fn>).mock.calls.filter(([name]) => name === "commit_style_analysis")).toHaveLength(0);
   });
 
   it("keeps the style draft when the provider fails hard", async () => {
