@@ -8,6 +8,8 @@ import { getSignedUrl } from "@/lib/assets/service";
 import ComparisonSlider from "@/components/editor/ComparisonSlider";
 import VersionHistory from "@/components/editor/VersionHistory";
 import VersionReviewActions from "@/components/editor/VersionReviewActions";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format/datetime";
 
 /** Reads an optional string out of the untyped jsonb provenance columns. */
@@ -150,29 +152,33 @@ export default async function StyleAssetDetailPage({
   const assetHref = `/style/${styleId}/assets/${assetId}`;
 
   return (
-    <div className="h-dvh overflow-hidden bg-[var(--canvas)] text-[var(--text)]">
-      <header className="flex h-14 items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-4">
-        <Link href={`/style/${styleId}`} className="max-w-32 truncate text-sm text-[var(--muted)] hover:text-[var(--text)]">{styleName}</Link>
-        <span className="text-[var(--muted)]">/</span>
+    <div className="h-dvh overflow-hidden bg-background text-foreground">
+      <header className="flex h-14 items-center gap-3 border-b border-border bg-muted px-4">
+        <Link href={`/style/${styleId}`} className="max-w-32 truncate text-sm text-muted-foreground hover:text-foreground">{styleName}</Link>
+        <span className="text-muted-foreground">/</span>
         <h1 className="min-w-0 flex-1 truncate font-semibold">{asset.name}</h1>
         <div className="flex shrink-0 items-center gap-2">
           {selected?.signedUrl && (
-            <a href={selected.signedUrl} download className="studio-icon-button" aria-label="Download this version">
-              <Download className="size-4" />
-            </a>
+            <Button asChild variant="outline" size="icon">
+              <a href={selected.signedUrl} download aria-label="Download this version">
+                <Download className="size-4" />
+              </a>
+            </Button>
           )}
-          <Link href={`${assetHref}/edit`} aria-label="Edit this image" className={candidate ? "studio-button-secondary" : "studio-button-primary"}>
-            <Paintbrush className="size-4" />
-            <span className="hidden sm:inline">Inpaint</span>
-          </Link>
+          <Button asChild variant={candidate ? "outline" : "default"}>
+            <Link href={`${assetHref}/edit`} aria-label="Edit this image">
+              <Paintbrush className="size-4" />
+              <span className="hidden sm:inline">Inpaint</span>
+            </Link>
+          </Button>
         </div>
       </header>
 
       <div className="flex h-[calc(100dvh-3.5rem)] flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
         <main className="min-w-0 flex-1 space-y-4 p-4 sm:p-6 xl:overflow-y-auto">
           {versionFallback && (
-            <p role="status" className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
-              <Info className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+            <p role="status" className="flex items-start gap-2 rounded-xl border border-border bg-card p-3 text-sm text-muted-foreground">
+              <Info className="mt-0.5 size-4 shrink-0 text-primary" />
               That version is not part of this asset. Showing the current version instead.
             </p>
           )}
@@ -187,49 +193,49 @@ export default async function StyleAssetDetailPage({
               height={selected.height || 600}
             />
           ) : selected?.signedUrl ? (
-            <img src={selected.signedUrl} alt={asset.name} className="mx-auto max-h-[70vh] max-w-full rounded-2xl object-contain" />
+            <img src={selected.signedUrl} alt={asset.name} className="mx-auto max-h-[70vh] max-w-full rounded-lg object-contain" />
           ) : (
-            <div className="flex h-64 items-center justify-center rounded-2xl border border-[var(--border)] text-[var(--muted)]">Preview unavailable</div>
+            <div className="flex h-64 items-center justify-center rounded-lg border border-border text-muted-foreground">Preview unavailable</div>
           )}
 
           {comparisonNotice && (
-            <p className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
-              <GitCompare className="mt-0.5 size-4 shrink-0 text-[var(--muted)]" />
+            <p className="flex items-start gap-2 rounded-xl border border-border bg-card p-3 text-sm text-muted-foreground">
+              <GitCompare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               {comparisonNotice}
             </p>
           )}
 
           {reviewing && candidate && selected && (
-            <section aria-label="Review edit" className="studio-card space-y-3 p-4">
+            <Card aria-label="Review edit" className="space-y-3"><CardContent className="space-y-3">
               <div className="flex items-center gap-2">
-                <Sparkles className="size-4 text-[var(--accent)]" />
+                <Sparkles className="size-4 text-primary" />
                 <h2 className="font-semibold">Review edit</h2>
               </div>
-              <p className="text-sm text-[var(--muted)]">
+              <p className="text-sm text-muted-foreground">
                 This edit is a candidate. Keeping it makes it the current version of {asset.name}; until then it stays in history only.
               </p>
               <VersionReviewActions assetId={assetId} assetHref={assetHref} versionId={selected.id} currentVersionId={asset.current_version_id ?? null} />
-            </section>
+            </CardContent></Card>
           )}
 
           {reviewing && !candidate && selected && (
-            <p role="status" className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
-              <Info className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+            <p role="status" className="flex items-start gap-2 rounded-xl border border-border bg-card p-3 text-sm text-muted-foreground">
+              <Info className="mt-0.5 size-4 shrink-0 text-primary" />
               You are viewing the current version. The unselected version remains in history.
             </p>
           )}
         </main>
 
-        <aside className="w-full shrink-0 divide-y divide-[var(--border)] border-t border-[var(--border)] bg-[var(--panel)] xl:w-72 xl:overflow-y-auto xl:border-l xl:border-t-0">
+        <aside className="w-full shrink-0 divide-y divide-border border-t border-border bg-muted xl:w-72 xl:overflow-y-auto xl:border-l xl:border-t-0">
           <div className="space-y-2 p-4">
             <h2 className="font-semibold">Asset info</h2>
-            <div className="space-y-2 text-sm text-[var(--muted)]">
-              <p><span className="text-[var(--muted)]">Name:</span> {asset.name}</p>
-              <p><span className="text-[var(--muted)]">Created:</span> {formatDateTime(asset.created_at)}</p>
-              <p><span className="text-[var(--muted)]">Versions:</span> {versions.length}</p>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p><span className="text-muted-foreground">Name:</span> {asset.name}</p>
+              <p><span className="text-muted-foreground">Created:</span> {formatDateTime(asset.created_at)}</p>
+              <p><span className="text-muted-foreground">Versions:</span> {versions.length}</p>
               {selected?.prompt && (
                 <div>
-                  <p className="text-[var(--muted)]">Prompt:</p>
+                  <p className="text-muted-foreground">Prompt:</p>
                   <p className="mt-1 whitespace-pre-wrap text-xs">{selected.prompt}</p>
                 </div>
               )}
@@ -239,11 +245,11 @@ export default async function StyleAssetDetailPage({
           {(provenance.length > 0 || sourceVersionId || adoptedCurrentStyle) && (
             <div className="space-y-2 p-4">
               <h2 className="font-semibold">Edit provenance</h2>
-              <dl className="space-y-2 text-sm text-[var(--muted)]">
+              <dl className="space-y-2 text-sm text-muted-foreground">
                 {provenance.map((row) => (
                   <div key={row.label}>
                     <dt className="text-xs uppercase tracking-wide">{row.label}</dt>
-                    <dd className="text-[var(--text)]">{row.value}</dd>
+                    <dd className="text-foreground">{row.value}</dd>
                   </div>
                 ))}
                 {sourceVersionId && (
@@ -251,18 +257,18 @@ export default async function StyleAssetDetailPage({
                     <dt className="text-xs uppercase tracking-wide">Source version</dt>
                     <dd>
                       {sourceHref ? (
-                        <Link href={sourceHref} className="text-[var(--accent)] hover:underline">
+                        <Link href={sourceHref} className="text-primary hover:underline">
                           {sourceVersionId.slice(0, 8)}
                         </Link>
                       ) : (
-                        <span className="text-[var(--text)]">{sourceVersionId.slice(0, 8)}</span>
+                        <span className="text-foreground">{sourceVersionId.slice(0, 8)}</span>
                       )}
                     </dd>
                   </div>
                 )}
               </dl>
               {adoptedCurrentStyle && (
-                <p className="rounded-xl bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] p-2 text-xs text-[var(--warning)]">
+                <p className="rounded-xl bg-warning/10 p-2 text-xs text-warning">
                   The original style of this source could not be recovered; this edit adopted the style that was current when it ran.
                 </p>
               )}

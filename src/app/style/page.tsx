@@ -23,7 +23,7 @@ export default async function StylePage() {
   const initialJobs: ProjectJobFeedItem[] = await Promise.all(parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })));
   const libraryList = (libraries ?? []).map((library) => ({ id: library.id as string, name: library.name as string }));
   const sidebar = <ModuleContextSidebar currentModule="style" userEmail={user.email ?? "Signed in"} recentJobs={initialJobs} libraryTabs={libraryList} />;
-  const center = <div className="h-full overflow-y-auto pb-24 xl:pb-0"><div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-10"><div className="mb-8"><p className="text-sm font-medium text-[var(--accent)]">Style Groups</p><h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Reusable visual systems</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">Create a shared style from references, review its rules, and use it consistently across new images.</p></div><StylePanel /></div></div>;
+  const center = <div className="h-full overflow-y-auto pb-24 xl:pb-0"><div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-10"><div className="mb-8"><p className="text-sm font-medium text-primary">Style Groups</p><h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Reusable visual systems</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Create a shared style from references, review its rules, and use it consistently across new images.</p></div><StylePanel /></div></div>;
   return <StudioShell projects={projects ?? []} userEmail={user.email ?? "Signed in"} leftSidebar={sidebar} center={center} />;
 
 }

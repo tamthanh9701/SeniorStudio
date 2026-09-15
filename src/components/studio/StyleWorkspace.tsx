@@ -16,8 +16,17 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClarificationForm from "./ClarificationForm";
 import SchemaEditor from "./SchemaEditor";
-import { StudioDialog } from "./StudioDialog";
 import StyleGroupComposer, { type ComposerReference } from "./StyleGroupComposer";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/format/datetime";
 import type { AiJob, ProjectJobFeedItem } from "@/db/ai-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
@@ -193,6 +202,8 @@ export default function StyleWorkspace({
   const [composerOpen, setComposerOpen] = useState(compose);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rawJsonOpen, setRawJsonOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
 
   const load = useCallback(async () => {
@@ -535,10 +546,10 @@ export default function StyleWorkspace({
 
   if (loading && !detail) {
     return (
-      <div className="min-h-dvh bg-[var(--canvas)] p-6 text-[var(--text)]">
+      <div className="min-h-dvh bg-background p-6 text-foreground">
         <div className="mx-auto max-w-6xl" aria-busy="true">
-          <p className="flex items-center gap-2 text-sm text-[var(--muted)]">
-            <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Loading the style workspace…
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin text-primary" /> Loading the style workspace…
           </p>
         </div>
       </div>
@@ -547,18 +558,18 @@ export default function StyleWorkspace({
 
   if (!detail) {
     return (
-      <div className="min-h-dvh bg-[var(--canvas)] p-6 text-[var(--text)]">
+      <div className="min-h-dvh bg-background p-6 text-foreground">
         <div className="mx-auto max-w-6xl space-y-4">
-          <div role="alert" className="studio-card space-y-3 p-5 text-sm">
-            <p className="flex items-center gap-2 font-medium text-[var(--danger)]">
+          <Alert variant="destructive" className="flex flex-col items-start gap-3 p-5 text-sm">
+            <p className="flex items-center gap-2 font-medium text-destructive">
               <AlertTriangle className="size-4" aria-hidden /> This style could not be loaded
             </p>
-            <p className="text-[var(--muted)]">{loadError ?? "Unknown error"}</p>
+            <p className="text-muted-foreground">{loadError ?? "Unknown error"}</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="studio-button-primary" onClick={() => void refresh()}>Try again</button>
-              <Link href="/style" className="studio-button-secondary">Back to styles</Link>
+              <Button type="button" onClick={() => void refresh()}>Try again</Button>
+              <Button asChild variant="outline"><Link href="/style">Back to styles</Link></Button>
             </div>
-          </div>
+          </Alert>
         </div>
       </div>
     );
@@ -583,12 +594,12 @@ export default function StyleWorkspace({
     <section className="space-y-4">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold">References</h2>
-        <p className="text-sm text-[var(--muted)]">
+        <p className="text-sm text-muted-foreground">
           Upload 1–8 PNG or JPEG images, up to 5 MB each. They define rendering, palette, lighting and materials — not the subjects you ask for later.
         </p>
       </div>
 
-      <div
+      <Card
         onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={(event) => {
@@ -597,92 +608,103 @@ export default function StyleWorkspace({
           const files = [...event.dataTransfer.files];
           if (files.length) void upload(files);
         }}
-        className={`studio-card flex flex-col items-center gap-3 border-dashed p-6 text-center ${dragging ? "border-[var(--accent)]" : ""}`}
+        className={cn("items-center gap-3 border-dashed p-6 text-center", dragging && "border-primary")}
       >
-        <ImagePlus className="size-6 text-[var(--muted)]" aria-hidden />
-        <p className="text-sm text-[var(--muted)]">
+        <ImagePlus className="size-6 text-muted-foreground" aria-hidden />
+        <p className="text-sm text-muted-foreground">
           {references.length === 0
             ? "No reference images yet. Drop files here or choose them from your device."
             : `${references.length} of ${MAX_REFERENCES} reference images. Drop more files here or choose them from your device.`}
         </p>
-        <label className={`${references.length === 0 ? "studio-button-primary" : "studio-button-secondary"} cursor-pointer`}>
-          <Upload className="size-4" aria-hidden /> Choose images
-          <input
-            type="file"
-            multiple
-            accept="image/png,image/jpeg"
-            className="sr-only"
-            disabled={busy !== null}
-            onChange={(event) => {
-              const files = event.target.files ? [...event.target.files] : [];
-              event.target.value = "";
-              if (files.length) void upload(files);
-            }}
-          />
-        </label>
-        <p className="text-xs text-[var(--muted)]">PNG or JPEG · 5 MB each · 8 images maximum</p>
-      </div>
+        <Button asChild variant={references.length === 0 ? "default" : "outline"}>
+          <label className="cursor-pointer">
+            <Upload className="size-4" aria-hidden /> Choose images
+            <input
+              type="file"
+              multiple
+              accept="image/png,image/jpeg"
+              className="sr-only"
+              disabled={busy !== null}
+              onChange={(event) => {
+                const files = event.target.files ? [...event.target.files] : [];
+                event.target.value = "";
+                if (files.length) void upload(files);
+              }}
+            />
+          </label>
+        </Button>
+        <p className="text-xs text-muted-foreground">PNG or JPEG · 5 MB each · 8 images maximum</p>
+      </Card>
 
       {references.length > 0 && (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {references.map((reference) => (
-            <li key={reference.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-              {reference.signed_url
-                ? <img src={reference.signed_url} alt="Style reference" className="aspect-square w-full object-cover" />
-                : <span className="flex aspect-square items-center justify-center px-2 text-center text-xs text-[var(--muted)]">Preview unavailable</span>}
-              <div className="flex items-center justify-between gap-2 p-2">
-                <span className="truncate text-[11px] text-[var(--muted)]">
-                  {reference.width && reference.height ? `${reference.width}×${reference.height}` : "Reference image"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void removeReference(reference.id)}
-                  disabled={busy !== null}
-                  aria-label="Remove this reference image from the editable set"
-                  className="studio-button-secondary shrink-0 px-3 text-xs"
-                >
-                  {busy === reference.id ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" aria-hidden />} Remove
-                </button>
-              </div>
+            <li key={reference.id}>
+              <Card className="gap-0 overflow-hidden p-0">
+                {reference.signed_url
+                  ? <img src={reference.signed_url} alt="Style reference" className="aspect-square w-full object-cover" />
+                  : <span className="flex aspect-square items-center justify-center px-2 text-center text-xs text-muted-foreground">Preview unavailable</span>}
+                <div className="flex items-center justify-between gap-2 p-2">
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {reference.width && reference.height ? `${reference.width}×${reference.height}` : "Reference image"}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => void removeReference(reference.id)}
+                    disabled={busy !== null}
+                    aria-label="Remove this reference image from the editable set"
+                    className="shrink-0 text-xs"
+                  >
+                    {busy === reference.id ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" aria-hidden />} Remove
+                  </Button>
+                </div>
+              </Card>
             </li>
           ))}
         </ul>
       )}
 
-      <div className="studio-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">
-            {analyzedAt ? `Analyzed ${formatDateTime(analyzedAt)}` : "Not analyzed yet"}
-          </p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            {analysisStale
-              ? "The analysis does not match the current reference set. Analyze again before confirming."
-              : "The analysis matches the current reference set."}
-          </p>
+      <Card className="gap-3 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {analyzedAt ? `Analyzed ${formatDateTime(analyzedAt)}` : "Not analyzed yet"}
+            </p>
+            {analysisStale ? (
+              <Alert variant="destructive" className="mt-2 flex items-center gap-2 px-3 py-2 text-xs">
+                <AlertTriangle className="size-4" aria-hidden />
+                <span>The analysis does not match the current reference set. Analyze again before confirming.</span>
+              </Alert>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">The analysis matches the current reference set.</p>
+            )}
+          </div>
+          <Button type="button" onClick={() => void analyze()} disabled={references.length === 0 || busy !== null} className="w-full sm:w-auto">
+            {busy === "analyze" ? <><LoaderCircle className="size-4 animate-spin" /> Analyzing…</> : <><Wand2 className="size-4" aria-hidden /> Analyze references</>}
+          </Button>
         </div>
-        <button type="button" onClick={() => void analyze()} disabled={references.length === 0 || busy !== null} className="studio-button-primary w-full sm:w-auto">
-          {busy === "analyze" ? <><LoaderCircle className="size-4 animate-spin" /> Analyzing…</> : <><Wand2 className="size-4" aria-hidden /> Analyze references</>}
-        </button>
-      </div>
+      </Card>
 
       {analyzedAt !== null && !analysisStale && (
-        <button type="button" className="studio-button-secondary" onClick={() => selectTab("style")}>
+        <Button type="button" variant="outline" onClick={() => selectTab("style")}>
           Review style
-        </button>
+        </Button>
       )}
 
       {missingConfirmedReferences.length > 0 && (
-        <section className="studio-card space-y-2 p-4">
-          <h3 className="studio-label">Used by the confirmed style</h3>
-          <p className="text-sm text-[var(--muted)]">
+        <Card className="gap-2 p-4">
+          <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Used by the confirmed style</Label>
+          <p className="text-sm text-muted-foreground">
             These reference images are no longer in the editable set, but images generated from the confirmed style still use them.
           </p>
           <ul className="space-y-1">
             {missingConfirmedReferences.map((reference) => (
-              <li key={reference.id} className="break-all font-mono text-xs text-[var(--muted)]">{reference.id}</li>
+              <li key={reference.id} className="break-all font-mono text-xs text-muted-foreground">{reference.id}</li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
     </section>
   );
@@ -691,7 +713,7 @@ export default function StyleWorkspace({
     <section className="space-y-4">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold">{ready ? "Style guide" : "Review style"}</h2>
-        <p className="text-sm text-[var(--muted)]">
+        <p className="text-sm text-muted-foreground">
           {ready
             ? "These rules define how every image from this style is rendered. They change only when you confirm an update."
             : "These rules steer every image generated from this style. Confirm them to start generating."}
@@ -699,32 +721,32 @@ export default function StyleWorkspace({
       </div>
 
       {candidateChanged && (
-        <p role="status" className="studio-card flex items-start gap-2 p-3 text-sm text-[var(--warning)]">
+        <Alert role="status" className="flex items-start gap-2 text-sm text-warning">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           Changes are not used until you confirm the updated style.
-        </p>
+        </Alert>
       )}
       {confirmed.invalid && (
-        <p role="alert" className="studio-card flex items-start gap-2 p-3 text-sm text-[var(--danger)]">
+        <Alert variant="destructive" className="flex items-start gap-2 text-sm">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           The saved definition of this style could not be read. Analyze the references and confirm the style again.
-        </p>
+        </Alert>
       )}
 
       {schema ? (
         <div className="grid gap-3 sm:grid-cols-2">
           {summaryCards.map((card) => (
-            <div key={card.label} className="studio-card p-4">
-              <p className="studio-label">{card.label}</p>
+            <Card key={card.label} className="gap-2 p-4">
+              <Label className="text-xs font-semibold tracking-wide text-muted-foreground">{card.label}</Label>
               <p className="text-sm">{card.value ?? "Not specified"}</p>
-            </div>
+            </Card>
           ))}
-          <div className="studio-card p-4">
-            <p className="studio-label">Colours</p>
+          <Card className="gap-2 p-4">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Colours</Label>
             {colors.length > 0 ? (
               <span className="flex flex-wrap items-center gap-2">
                 {colors.map((hex) => (
-                  <span key={hex} aria-label={hex} title={hex} className="inline-block size-5 rounded border border-[var(--border)]" style={{ backgroundColor: hex }} />
+                  <span key={hex} aria-label={hex} title={hex} className="inline-block size-5 rounded border border-border" style={{ backgroundColor: hex }} />
                 ))}
               </span>
             ) : rawColorList.length > 0 ? (
@@ -732,20 +754,20 @@ export default function StyleWorkspace({
             ) : (
               <p className="text-sm">Not specified</p>
             )}
-          </div>
-          <div className="studio-card p-4">
-            <p className="studio-label">Keep consistent</p>
+          </Card>
+          <Card className="gap-2 p-4">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Keep consistent</Label>
             <p className="text-sm">{keepConsistent ?? "Not specified"}</p>
-          </div>
-          <div className="studio-card p-4">
-            <p className="studio-label">Avoid</p>
+          </Card>
+          <Card className="gap-2 p-4">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Avoid</Label>
             <p className="text-sm">{avoid ?? "Not specified"}</p>
-          </div>
+          </Card>
         </div>
       ) : (
-        <p role="status" className="studio-card p-5 text-sm text-[var(--muted)]">
+        <Card role="status" className="p-5 text-sm text-muted-foreground">
           No analysis yet. Add reference images and run Analyze references to see the detected style.
-        </p>
+        </Card>
       )}
 
       {detail.clarification_questions && detail.clarification_questions.questions.length > 0 && (
@@ -759,58 +781,64 @@ export default function StyleWorkspace({
 
       <div className="flex flex-wrap gap-2">
         {schema === null ? (
-          <button type="button" className="studio-button-primary" onClick={() => void analyze()} disabled={references.length === 0 || busy !== null}>
+          <Button type="button" onClick={() => void analyze()} disabled={references.length === 0 || busy !== null}>
             {busy === "analyze" ? <><LoaderCircle className="size-4 animate-spin" /> Analyzing…</> : <><Wand2 className="size-4" aria-hidden /> Analyze references</>}
-          </button>
+          </Button>
         ) : ready && !candidateChanged ? (
-          <button type="button" className="studio-button-primary" onClick={() => selectTab("images")}>Create images</button>
+          <Button type="button" onClick={() => selectTab("images")}>Create images</Button>
         ) : (
-          <button type="button" className="studio-button-primary" onClick={() => void confirmStyle()} disabled={!canConfirm}>
+          <Button type="button" onClick={() => void confirmStyle()} disabled={!canConfirm}>
             {busy === "confirm" ? <><LoaderCircle className="size-4 animate-spin" /> Confirming…</> : "Confirm style & continue"}
-          </button>
+          </Button>
         )}
       </div>
 
-      <details className="studio-card p-4">
-        <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
-          <ChevronDown className="size-4" aria-hidden /> Advanced
-        </summary>
-        <div className="mt-4 space-y-5">
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="rounded-lg border border-border bg-card p-4">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="flex min-h-11 w-full items-center justify-start gap-2 text-sm font-medium">
+            <ChevronDown className={cn("size-4 transition-transform", advancedOpen && "rotate-180")} aria-hidden /> Advanced
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-4 space-y-5">
           <div>
-            <p className="studio-label">Readiness diagnostics</p>
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Readiness diagnostics</Label>
             {detail.operability ? (
-              <ul className="space-y-1 text-xs text-[var(--muted)]">
-                <li className="text-[var(--text)]">{detail.operability.grade} · {detail.operability.score}/100</li>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                <li className="text-foreground">{detail.operability.grade} · {detail.operability.score}/100</li>
                 {detail.operability.checks.map((check) => (
                   <li key={check.id}>{check.status}: {check.label} — {check.detail}</li>
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-[var(--muted)]">No readiness diagnostics recorded yet.</p>
+              <p className="text-xs text-muted-foreground">No readiness diagnostics recorded yet.</p>
             )}
           </div>
 
           {priorSchemaVersion && (
-            <button type="button" className="studio-button-secondary" disabled={busy !== null} onClick={() => void rollbackSchema(priorSchemaVersion.schema)}>
+            <Button type="button" variant="outline" disabled={busy !== null} onClick={() => void rollbackSchema(priorSchemaVersion.schema)}>
               {busy === "rollback" ? <LoaderCircle className="size-4 animate-spin" /> : <RotateCcw className="size-4" aria-hidden />} Rollback to previous version
-            </button>
+            </Button>
           )}
 
           {schema && (
             <div>
-              <p className="studio-label">Edit the candidate style</p>
+              <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Edit the candidate style</Label>
               <SchemaEditor styleId={styleId} schema={schema} onSaved={() => refresh({ silent: true })} />
             </div>
           )}
 
           {schema && (
-            <details>
-              <summary className="flex min-h-11 cursor-pointer items-center text-xs text-[var(--muted)] hover:text-[var(--text)]">Raw style JSON</summary>
-              <pre className="mt-2 max-h-96 overflow-auto rounded-xl bg-[var(--surface-hover)] p-4 text-xs text-[var(--muted)]">{JSON.stringify(schema, null, 2)}</pre>
-            </details>
+            <Collapsible open={rawJsonOpen} onOpenChange={setRawJsonOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" className="flex min-h-11 items-center justify-start text-xs text-muted-foreground hover:text-foreground">Raw style JSON</Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <pre className="mt-2 max-h-96 overflow-auto rounded-xl bg-accent p-4 text-xs text-muted-foreground">{JSON.stringify(schema, null, 2)}</pre>
+              </CollapsibleContent>
+            </Collapsible>
           )}
-        </div>
-      </details>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 
@@ -818,67 +846,69 @@ export default function StyleWorkspace({
     <section className="space-y-5">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold">Images</h2>
-        <p className="text-sm text-[var(--muted)]">Images generated with this style. Every image keeps the confirmed definition it was made with.</p>
+        <p className="text-sm text-muted-foreground">Images generated with this style. Every image keeps the confirmed definition it was made with.</p>
       </div>
 
       {!ready && (
-        <div className="studio-card space-y-3 p-4">
+        <Card className="gap-3 p-4">
           <p className="text-sm">
             This style is not confirmed yet. Image generation uses the confirmed definition, so finish the setup first.
           </p>
-          <button type="button" className="studio-button-primary" onClick={() => selectTab("references")}>Continue setup</button>
-        </div>
+          <div>
+            <Button type="button" onClick={() => selectTab("references")}>Continue setup</Button>
+          </div>
+        </Card>
       )}
 
       {confirmed.definition && (
-        <div className="studio-card flex flex-wrap items-center gap-3 p-4">
+        <Card className="flex flex-wrap items-center gap-3 p-4">
           <div className="min-w-0 flex-1">
-            <p className="studio-label">Confirmed definition</p>
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Confirmed definition</Label>
             <p className="text-sm">
               {confirmed.definition.reference_snapshot.length} reference image(s) · confirmed {formatDateTime(confirmed.definition.confirmed_at)}
             </p>
           </div>
           {candidateChanged && (
-            <p role="status" className="text-xs text-[var(--warning)]">Changes are not used until you confirm the updated style.</p>
+            <p role="status" className="text-xs text-warning">Changes are not used until you confirm the updated style.</p>
           )}
           {candidateChanged && (
-            <button type="button" className="studio-button-secondary" onClick={() => selectTab("style")}>Review the change</button>
+            <Button type="button" variant="outline" onClick={() => selectTab("style")}>Review the change</Button>
           )}
-        </div>
+        </Card>
       )}
 
       {gallery.length > 0 ? (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {gallery.map((asset) => (
             <li key={asset.id}>
-              <Link href={`/style/${styleId}/assets/${asset.id}`} className="group block overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition hover:border-[var(--accent)]">
+              <Link href={`/style/${styleId}/assets/${asset.id}`} className="group block overflow-hidden rounded-xl border border-border bg-card transition hover:border-primary">
                 {asset.signedUrl
                   ? <img src={asset.signedUrl} alt={asset.name} className="aspect-square w-full object-cover" />
-                  : <span className="flex aspect-square items-center justify-center text-xs text-[var(--muted)]">Preview unavailable</span>}
-                <span className="block truncate px-3 py-2 text-xs text-[var(--muted)]">{asset.name}</span>
+                  : <span className="flex aspect-square items-center justify-center text-xs text-muted-foreground">Preview unavailable</span>}
+                <span className="block truncate px-3 py-2 text-xs text-muted-foreground">{asset.name}</span>
               </Link>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="studio-card p-5 text-sm text-[var(--muted)]">
+        <Card role="status" className="p-5 text-sm text-muted-foreground">
           {ready ? "No images yet. Create the first image for this style." : "No images yet."}
-        </p>
+        </Card>
       )}
 
       {ready && modelsForComposer.length === 0 && (
-        <div className="studio-card space-y-3 p-4">
+        <Card className="items-start gap-3 p-4">
           <p className="text-sm">No image model is configured for this workspace yet, so this style cannot generate images.</p>
-          <Link href="/settings" className="studio-button-primary">Set up a provider</Link>
-        </div>
+          <Button asChild><Link href="/settings">Set up a provider</Link></Button>
+        </Card>
       )}
 
       {ready && showComposer && modelsForComposer.length > 0 && (
         <div className="space-y-4">
           {sourceVersionId && !sourceVersion && (
-            <p role="status" className="studio-card p-3 text-sm text-[var(--muted)]">
+            <Card role="status" className="p-3 text-sm text-muted-foreground">
               The image this link referred to could not be loaded, so this form creates a new image instead.
-            </p>
+            </Card>
           )}
           <StyleGroupComposer
             styleId={styleId}
@@ -895,76 +925,76 @@ export default function StyleWorkspace({
       )}
 
       {ready && !showComposer && modelsForComposer.length > 0 && (
-        <button type="button" className="studio-button-primary" onClick={() => setComposerOpen(true)}>
+        <Button type="button" onClick={() => setComposerOpen(true)}>
           <ImagePlus className="size-4" aria-hidden /> Create new image
-        </button>
+        </Button>
       )}
     </section>
   );
 
   return (
-    <div className="min-h-dvh bg-[var(--canvas)] text-[var(--text)]">
-      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--panel)]">
+    <Tabs value={tab} onValueChange={(value) => selectTab(value as WorkspaceTab)} className="flex min-h-dvh flex-col gap-0 bg-background text-foreground">
+      <header className="sticky top-0 z-10 border-b border-border bg-muted">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-          <Link href="/style" className="text-sm text-[var(--muted)] hover:text-[var(--text)]">Styles</Link>
-          <span aria-hidden className="text-[var(--muted)]">/</span>
+          <Link href="/style" className="text-sm text-muted-foreground hover:text-foreground">Styles</Link>
+          <span aria-hidden className="text-muted-foreground">/</span>
           <h1 className="min-w-0 flex-1 truncate font-semibold">{detail.name}</h1>
-          <span className={`rounded-full px-2 py-0.5 text-xs ${ready ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "bg-[var(--surface-hover)] text-[var(--muted)]"}`}>
+          <Badge variant={ready ? "default" : "secondary"}>
             {ready ? "Confirmed" : "Setup in progress"}
-          </span>
-          <button type="button" className="studio-icon-button" aria-label="Style settings" onClick={() => setSettingsOpen(true)}>
+          </Badge>
+          <Button type="button" variant="outline" size="icon" aria-label="Style settings" onClick={() => setSettingsOpen(true)}>
             <Settings className="size-4" aria-hidden />
-          </button>
+          </Button>
         </div>
         <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6">
           {ready ? (
-            <nav aria-label="Style sections" className="flex flex-wrap gap-1">
-              {([["images", "Images"], ["style", "Style guide"], ["references", "References"]] as Array<[WorkspaceTab, string]>).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-current={tab === value ? "page" : undefined}
-                  onClick={() => selectTab(value)}
-                  className={`min-h-11 rounded-lg px-3 text-sm font-medium transition-colors ${tab === value ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
-                >
-                  {label}
-                </button>
-              ))}
+            <nav aria-label="Style sections">
+              <TabsList variant="line" className="h-auto! flex flex-wrap gap-1 bg-transparent p-0">
+                {([["images", "Images"], ["style", "Style guide"], ["references", "References"]] as Array<[WorkspaceTab, string]>).map(([value, label]) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    aria-current={tab === value ? "page" : undefined}
+                    className="h-11 min-h-11 px-3 text-sm font-medium"
+                  >
+                    {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
             </nav>
           ) : (
             <nav aria-label="Setup steps">
-              <ol className="flex flex-wrap items-center gap-1">
+              <TabsList variant="line" className="h-auto! flex flex-wrap gap-1 bg-transparent p-0">
                 {SETUP_STEPS.map((step, index) => (
-                  <li key={step.label}>
-                    <button
-                      type="button"
-                      aria-current={setupStep === index ? "step" : undefined}
-                      onClick={() => selectTab(step.tab)}
-                      className={`min-h-11 rounded-lg px-3 text-sm font-medium transition-colors ${setupStep === index ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}
-                    >
-                      <span className="mr-1.5 text-xs">{index + 1}.</span>{step.label}
-                    </button>
-                  </li>
+                  <TabsTrigger
+                    key={step.label}
+                    value={step.tab}
+                    aria-current={setupStep === index ? "step" : undefined}
+                    className="h-11 min-h-11 px-3 text-sm font-medium"
+                  >
+                    <span className="mr-1.5 text-xs">{index + 1}.</span>{step.label}
+                  </TabsTrigger>
                 ))}
-              </ol>
+              </TabsList>
             </nav>
           )}
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-6 sm:px-6">
-        <p role="status" aria-live="polite" className="min-h-5 text-xs text-[var(--muted)]">{status}</p>
+        <p role="status" aria-live="polite" className="min-h-5 text-xs text-muted-foreground">{status}</p>
 
         {feedback && (
-          <div
+          <Alert
             role={feedback.kind === "error" ? "alert" : "status"}
-            className={`studio-card flex flex-wrap items-center gap-3 p-3 text-sm ${feedback.kind === "error" ? "text-[var(--danger)]" : "text-[var(--success)]"}`}
+            variant={feedback.kind === "error" ? "destructive" : "default"}
+            className={cn("flex flex-wrap items-center gap-3 p-3 text-sm", feedback.kind === "error" ? "text-destructive" : "text-success")}
           >
             <span className="min-w-0 flex-1">{feedback.text}</span>
             {feedback.action && (
-              <button
+              <Button
                 type="button"
-                className="studio-button-secondary"
+                variant="outline"
                 onClick={() => {
                   const action = feedback.action;
                   setFeedback(null);
@@ -972,49 +1002,53 @@ export default function StyleWorkspace({
                 }}
               >
                 {feedback.action.label}
-              </button>
+              </Button>
             )}
-          </div>
+          </Alert>
         )}
 
-        {tab === "references" && referencesScreen}
-        {tab === "style" && reviewScreen}
-        {tab === "images" && imagesScreen}
+        <TabsContent value="references">{referencesScreen}</TabsContent>
+        <TabsContent value="style">{reviewScreen}</TabsContent>
+        <TabsContent value="images">{imagesScreen}</TabsContent>
       </main>
 
-      <StudioDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} label="Style settings" className="studio-card w-full max-w-md p-6" style={{ position: "fixed" }}>
-        <div className="space-y-5">
-          <h2 className="font-semibold">Style settings</h2>
-          <div>
-            <label className="studio-label" htmlFor="style-name">Style name</label>
-            <input id="style-name" className="studio-control" value={nameDraft} maxLength={100} onChange={(event) => setNameDraft(event.target.value)} />
-            <button type="button" className="studio-button-secondary mt-3" disabled={busy !== null || !nameDraft.trim() || nameDraft.trim() === detail.name} onClick={() => void renameStyle()}>
-              {busy === "rename" ? <LoaderCircle className="size-4 animate-spin" /> : null} Save name
-            </button>
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle className="text-base font-semibold">Style settings</DialogTitle>
+          <div className="space-y-5">
+            <div>
+              <Label htmlFor="style-name" className="text-xs font-semibold tracking-wide text-muted-foreground">Style name</Label>
+              <Input id="style-name" value={nameDraft} maxLength={100} onChange={(event) => setNameDraft(event.target.value)} />
+              <Button type="button" variant="outline" className="mt-3" disabled={busy !== null || !nameDraft.trim() || nameDraft.trim() === detail.name} onClick={() => void renameStyle()}>
+                {busy === "rename" ? <LoaderCircle className="size-4 animate-spin" /> : null} Save name
+              </Button>
+            </div>
+            <div className="space-y-2 border-t border-border pt-4">
+              <p className="text-sm font-medium text-destructive">Delete this style</p>
+              <p className="text-xs text-muted-foreground">Deleting removes the style and its reference images. Generated images are kept. This cannot be undone.</p>
+              <div>
+                <Button type="button" variant="destructive" disabled={busy !== null} onClick={() => setDeleteOpen(true)}>
+                  <Trash2 className="size-4" aria-hidden /> Delete style
+                </Button>
+              </div>
+            </div>
+            <Button type="button" variant="outline" className="w-full" onClick={() => setSettingsOpen(false)}>Close</Button>
           </div>
-          <div className="space-y-2 border-t border-[var(--border)] pt-4">
-            <p className="text-sm font-medium text-[var(--danger)]">Delete this style</p>
-            <p className="text-xs text-[var(--muted)]">Deleting removes the style and its reference images. Generated images are kept. This cannot be undone.</p>
-            <button type="button" className="studio-button-danger" disabled={busy !== null} onClick={() => setDeleteOpen(true)}>
-              <Trash2 className="size-4" aria-hidden /> Delete style
-            </button>
-          </div>
-          <button type="button" className="studio-button-secondary w-full" onClick={() => setSettingsOpen(false)}>Close</button>
-        </div>
-      </StudioDialog>
+        </DialogContent>
+      </Dialog>
 
-      <StudioDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} label="Confirm deleting this style" className="studio-card w-full max-w-md p-6" style={{ position: "fixed" }}>
-        <div className="space-y-4">
-          <h2 className="font-semibold">Delete “{detail.name}”?</h2>
-          <p className="text-sm text-[var(--muted)]">This deletes the style and its reference images. Already generated images stay in your workspace. This cannot be undone.</p>
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle className="text-base font-semibold">Delete “{detail.name}”?</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">This deletes the style and its reference images. Already generated images stay in your workspace. This cannot be undone.</DialogDescription>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="studio-button-secondary flex-1" onClick={() => setDeleteOpen(false)} disabled={busy !== null}>Cancel</button>
-            <button type="button" className="studio-button-danger flex-1" onClick={() => void deleteStyle()} disabled={busy !== null}>
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)} disabled={busy !== null}>Cancel</Button>
+            <Button type="button" variant="destructive" className="flex-1" onClick={() => void deleteStyle()} disabled={busy !== null}>
               {busy === "delete" ? <LoaderCircle className="size-4 animate-spin" /> : null} Delete style
-            </button>
+            </Button>
           </div>
-        </div>
-      </StudioDialog>
-    </div>
+        </DialogContent>
+      </Dialog>
+    </Tabs>
   );
 }

@@ -4,6 +4,11 @@ import { Suspense, useState } from "react";
 import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/supabase/client";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 function LoginInner() {
   const searchParams = useSearchParams();
@@ -53,61 +58,79 @@ function LoginInner() {
   };
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--canvas)] px-4 py-10 text-[var(--text)] sm:px-6">
-      <section className="studio-card relative w-full max-w-md p-6 sm:p-8">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <span className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-[var(--accent)]"><Sparkles className="size-6" /></span>
-          <h1 className="text-2xl font-semibold tracking-tight">Welcome to SeniorStudio</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Generate and refine images in a focused, immutable creative workspace.</p>
-        </div>
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
+      <Card className="relative w-full max-w-md">
+        <CardHeader className="items-center text-center">
+          <span className="mb-2 flex size-12 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Sparkles className="size-6" /></span>
+          <CardTitle className="text-2xl">Welcome to SeniorStudio</CardTitle>
+          <CardDescription>Generate and refine images in a focused, immutable creative workspace.</CardDescription>
+        </CardHeader>
+        <CardContent>
         <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="studio-label">Email address</label>
-            <input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={loading} className="studio-control" placeholder="owner@example.com" autoComplete="email" />
+          <div className="space-y-2">
+            <Label htmlFor="email" className="text-xs font-semibold">Email address</Label>
+            <Input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={loading} placeholder="owner@example.com" autoComplete="email" />
           </div>
           {mode === "signin" && (
-            <div>
-              <label htmlFor="password" className="studio-label">Password</label>
-              <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required disabled={loading} className="studio-control" autoComplete="current-password" />
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-xs font-semibold">Password</Label>
+              <Input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required disabled={loading} autoComplete="current-password" />
             </div>
           )}
-          <button
+          <Button
             type="submit"
+            className="w-full"
             disabled={loading || !email.trim() || (mode === "signin" && !password)}
-            className="studio-button-primary w-full"
           >
             {loading
               ? mode === "signin" ? "Signing in…" : "Sending…"
               : mode === "signin" ? <>Sign in <ArrowRight className="size-4" /></> : "Send reset link"}
-          </button>
+          </Button>
           {mode === "signin" ? (
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
               onClick={() => { setMode("reset"); setMessage(null); }}
-              className="mx-auto block text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
+              className="mx-auto block text-xs text-muted-foreground"
             >
               Forgot password?
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
               onClick={() => { setMode("signin"); setMessage(null); setPassword(""); }}
-              className="mx-auto block text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
+              className="mx-auto block text-xs text-muted-foreground"
             >
               Back to sign in
-            </button>
+            </Button>
           )}
-          {message && <div role={message.kind === "error" ? "alert" : "status"} aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm ${message.kind === "success" ? "border-[color-mix(in_srgb,var(--success)_30%,transparent)] bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]" : "border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]"}`}><span className="flex gap-2">{message.kind === "success" && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}{message.text}</span></div>}
+          {message && (
+            <Alert
+              variant={message.kind === "error" ? "destructive" : "default"}
+              role={message.kind === "error" ? "alert" : "status"}
+              aria-live="polite"
+              className={message.kind === "success" ? "border-success/30 bg-success/10 text-success" : undefined}
+            >
+              <AlertDescription className="flex gap-2">
+                {message.kind === "success" && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
+                {message.text}
+              </AlertDescription>
+            </Alert>
+          )}
         </form>
-        <p className="mt-6 text-center text-xs leading-5 text-[var(--muted)]">Sign in with your email and password.</p>
-      </section>
+        <p className="mt-6 text-center text-xs leading-5 text-muted-foreground">Sign in with your email and password.</p>
+        </CardContent>
+      </Card>
     </main>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-dvh items-center justify-center bg-[var(--canvas)] text-sm text-[var(--muted)]">Loading sign in…</div>}>
+    <Suspense fallback={<div className="flex min-h-dvh items-center justify-center bg-background text-sm text-muted-foreground">Loading sign in…</div>}>
       <LoginInner />
     </Suspense>
   );

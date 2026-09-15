@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import StudioCanvas from "./StudioCanvas";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 interface Layer {
   id: string;
@@ -92,28 +95,34 @@ export default function EditorWorkspace({
 
   return (
     <div className="flex">
-      <div className="w-64 border-r p-4">
-        <h3 className="font-semibold mb-4">Layers</h3>
-        
-        <div className="space-y-2 mb-4">
-          <button
+      <Card className="w-64 gap-4 rounded-none border-0 border-r bg-card p-4 shadow-none">
+        <h3 className="font-semibold">Layers</h3>
+
+        <div className="space-y-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-start"
             onClick={() => addLayer("text", { text: "New Text", fontSize: 24, fontFamily: "Arial", fill: "#000000", align: "left" })}
-            className="w-full px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm"
           >
             Add Text
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-start"
             onClick={() => addLayer("shape", { shapeType: "rectangle", width: 100, height: 100, fill: "#3b82f6", stroke: "#1d4ed8", strokeWidth: 2 })}
-            className="w-full px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm"
           >
             Add Rectangle
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-start"
             onClick={() => addLayer("shape", { shapeType: "ellipse", radiusX: 50, radiusY: 50, fill: "#10b981", stroke: "#059669", strokeWidth: 2 })}
-            className="w-full px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm"
           >
             Add Ellipse
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-1">
@@ -122,38 +131,45 @@ export default function EditorWorkspace({
             .map((layer) => (
               <div
                 key={layer.id}
-                className={`p-2 rounded cursor-pointer flex items-center gap-2 ${
+                className={cn(
+                  "flex cursor-pointer items-center gap-2 rounded-lg border p-2",
                   selectedLayerId === layer.id
-                    ? "bg-blue-100 border border-blue-300"
-                    : "bg-gray-50 hover:bg-gray-100"
-                }`}
+                    ? "border-primary bg-primary/10"
+                    : "border-transparent bg-muted hover:bg-accent"
+                )}
                 onClick={() => setSelectedLayerId(layer.id)}
               >
-                <span className="flex-1 text-sm truncate">{layer.name}</span>
-                <button
+                <span className="min-w-0 flex-1 truncate text-sm">{layer.name}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-xs text-muted-foreground"
                   onClick={(e) => {
                     e.stopPropagation();
                     updateLayer(layer.id, { visible: !layer.visible });
                   }}
-                  className="text-xs text-gray-500 hover:text-gray-700"
                 >
                   {layer.visible ? "👁" : "🚫"}
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-xs text-destructive"
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteLayer(layer.id);
                   }}
-                  className="text-xs text-red-500 hover:text-red-700"
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             ))}
         </div>
-      </div>
+      </Card>
 
-      <div className="flex-1 p-4 overflow-auto">
+      <div className="flex-1 overflow-auto bg-stage p-4">
         <StudioCanvas
           width={width}
           height={height}

@@ -2,6 +2,13 @@
 
 import { Check, Eye, EyeOff, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type ProviderRow = { provider: "openai" | "google"; label: string; hint: string; keyPlaceholder: string; configured: boolean; availability: "unknown" | "available" | "unavailable"; validation: "not_run" | "passed" | "failed"; updatedAt?: string | null };
 
@@ -79,10 +86,30 @@ export default function ProviderSettings() {
   const retry = () => { void load(); };
 
   return <div className="space-y-4 p-5">
-    <div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-[var(--accent-subtle)] text-[var(--accent)]"><KeyRound className="size-5" /></span><div><h2 className="font-semibold">AI providers</h2><p className="text-sm text-[var(--muted)]">Keys are stored per workspace and never sent back to the browser.</p></div></div>
-    {loadStatus === "loading" && <div className="flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="size-4 animate-spin" />Loading provider settings…</div>}
-    {loadStatus === "error" && <div role="alert" className="flex items-center justify-between rounded-xl border border-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] p-3 text-sm text-[var(--danger)]"><span>Unable to load provider settings.</span><button type="button" onClick={retry} className="studio-button-secondary text-xs">Retry</button></div>}
-    {loadStatus === "ready" && rows.map((row) => <section key={row.provider} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="font-medium">{row.label}</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">{row.hint}</p></div><span className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${row.configured ? "bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] text-[var(--warning)]" : "bg-[var(--surface-hover)] text-[var(--muted)]"}`}>{row.configured ? "Configured · validation pending" : "Not configured"}</span></div><div className="mt-3 flex gap-2"><div className="relative min-w-0 flex-1"><input className="studio-control pr-16" type={reveal[row.provider] ? "text" : "password"} value={drafts[row.provider] ?? ""} onChange={(e) => setDrafts((current) => ({ ...current, [row.provider]: e.target.value }))} placeholder={row.keyPlaceholder} disabled={busy} aria-label={`${row.label} API key`} /><button type="button" className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-[var(--muted)] hover:text-[var(--text)]" onClick={() => setReveal((current) => ({ ...current, [row.provider]: !current[row.provider] }))} aria-label={reveal[row.provider] ? "Hide API key" : "Show API key"} disabled={busy}>{reveal[row.provider] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div><button type="button" className="studio-button-primary" onClick={() => void save(row.provider)} disabled={busy || loadStatus !== "ready" || !drafts[row.provider]?.trim()}>{state?.provider === row.provider && state.kind === "saving" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />} Save</button><button type="button" className="studio-button-secondary" onClick={() => void remove(row.provider)} disabled={busy || loadStatus !== "ready" || !row.configured}>{state?.provider === row.provider && state.kind === "removing" ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />} Remove</button></div>{feedback?.provider === row.provider && <p role={feedback.kind === "error" ? "alert" : "status"} className={`mt-2 text-xs ${feedback.kind === "error" ? "text-[var(--danger)]" : "text-[var(--success)]"}`}>{feedback.text}</p>}</section>)}
-  {feedback?.provider === "all" && <p role="alert" className="text-xs text-[var(--danger)]">{feedback.text}</p>}
+    <div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><KeyRound className="size-5" /></span><div className="min-w-0"><h2 className="font-semibold">AI providers</h2><p className="text-sm text-muted-foreground">Keys are stored per workspace and never sent back to the browser.</p></div></div>
+    {loadStatus === "loading" && <div className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Loading provider settings…</div>}
+    {loadStatus === "error" && <Alert variant="destructive" className="flex items-center justify-between gap-3"><AlertDescription>Unable to load provider settings.</AlertDescription><Button variant="outline" size="sm" className="text-xs" onClick={retry}>Retry</Button></Alert>}
+    {loadStatus === "ready" && rows.map((row) => <Card key={row.provider} className="gap-3 py-4">
+      <CardHeader className="flex flex-row items-start justify-between gap-3 px-4">
+        <div className="min-w-0">
+          <CardTitle className="font-medium">{row.label}</CardTitle>
+          <CardDescription className="mt-1 text-xs leading-5">{row.hint}</CardDescription>
+        </div>
+        <Badge variant="secondary" role="status" aria-live="polite" className={row.configured ? "bg-warning/10 text-warning" : "text-muted-foreground"}>{row.configured ? "Configured · validation pending" : "Not configured"}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-2 px-4">
+        <Label htmlFor={`provider-${row.provider}`} className="text-xs font-semibold tracking-wide text-muted-foreground">{`${row.label} API key`}</Label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <Input id={`provider-${row.provider}`} className="pr-12" type={reveal[row.provider] ? "text" : "password"} value={drafts[row.provider] ?? ""} onChange={(e) => setDrafts((current) => ({ ...current, [row.provider]: e.target.value }))} placeholder={row.keyPlaceholder} disabled={busy} aria-label={`${row.label} API key`} />
+            <Button type="button" variant="ghost" size="icon" className="absolute top-1/2 right-0 -translate-y-1/2" onClick={() => setReveal((current) => ({ ...current, [row.provider]: !current[row.provider] }))} aria-label={reveal[row.provider] ? "Hide API key" : "Show API key"} disabled={busy}>{reveal[row.provider] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</Button>
+          </div>
+          <Button type="button" onClick={() => void save(row.provider)} disabled={busy || loadStatus !== "ready" || !drafts[row.provider]?.trim()}>{state?.provider === row.provider && state.kind === "saving" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />} Save</Button>
+          <Button type="button" variant="destructive" onClick={() => void remove(row.provider)} disabled={busy || loadStatus !== "ready" || !row.configured}>{state?.provider === row.provider && state.kind === "removing" ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />} Remove</Button>
+        </div>
+        {feedback?.provider === row.provider && <p role={feedback.kind === "error" ? "alert" : "status"} className={cn("text-xs", feedback.kind === "error" ? "text-destructive" : "text-success")}>{feedback.text}</p>}
+      </CardContent>
+    </Card>)}
+    {feedback?.provider === "all" && <p role="alert" className="text-xs text-destructive">{feedback.text}</p>}
   </div>;
 }

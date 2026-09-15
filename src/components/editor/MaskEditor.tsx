@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eraser, Hand, LoaderCircle, Maximize, Paintbrush, Redo2, RefreshCw, RotateCcw, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Stage, Layer, Circle, Image as KonvaImage, Line } from "react-konva";
 import type Konva from "konva";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Slider } from "@/components/ui/slider";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type MaskStroke = { points: number[]; tool: "brush" | "eraser"; width: number };
 type Tool = "brush" | "eraser" | "pan";
@@ -261,36 +265,40 @@ export default function MaskEditor({
 
   const toggleInverted = () => { setInverted((value) => !value); onDirty?.(); };
 
-  return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--canvas)]">
-    <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--border)] bg-[var(--panel)] p-3">
-      <div className="flex shrink-0 rounded-xl bg-[var(--surface-hover)] p-1" role="group" aria-label="Mask tool">
-        <button type="button" aria-pressed={tool === "brush"} aria-label="Brush tool" onClick={() => setTool("brush")} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs ${tool === "brush" ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]"}`}><Paintbrush className="size-4" /><span className="hidden sm:inline">Brush</span></button>
-        <button type="button" aria-pressed={tool === "eraser"} aria-label="Restore tool" onClick={() => setTool("eraser")} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs ${tool === "eraser" ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]"}`}><Eraser className="size-4" /><span className="hidden sm:inline">Restore</span></button>
-        <button type="button" aria-pressed={tool === "pan"} aria-label="Pan tool" onClick={() => setTool("pan")} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs ${tool === "pan" ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]"}`}><Hand className="size-4" /><span className="hidden sm:inline">Pan</span></button>
+  return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-muted p-3">
+      <ToggleGroup type="single" value={tool} onValueChange={(value) => { if (value) setTool(value as Tool); }} aria-label="Mask tool" className="flex shrink-0 rounded-xl bg-accent p-1">
+        <ToggleGroupItem value="brush" aria-label="Brush tool" className="h-11 gap-2 rounded-lg px-3 text-xs text-muted-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Paintbrush className="size-4" /><span className="hidden sm:inline">Brush</span></ToggleGroupItem>
+        <ToggleGroupItem value="eraser" aria-label="Restore tool" className="h-11 gap-2 rounded-lg px-3 text-xs text-muted-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Eraser className="size-4" /><span className="hidden sm:inline">Restore</span></ToggleGroupItem>
+        <ToggleGroupItem value="pan" aria-label="Pan tool" className="h-11 gap-2 rounded-lg px-3 text-xs text-muted-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Hand className="size-4" /><span className="hidden sm:inline">Pan</span></ToggleGroupItem>
+      </ToggleGroup>
+      <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        <span>Brush</span>
+        <Slider id="mask-brush-size" className="h-11 w-28" aria-label="Brush" aria-valuetext={`${brushSize} pixels`} min={5} max={200} step={1} value={[brushSize]} onValueChange={([value]) => setBrushSize(value)} />
+        <span className="w-10 text-right">{brushSize}px</span>
       </div>
-      <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--muted)]" htmlFor="mask-brush-size">Brush <input id="mask-brush-size" className="min-h-11" aria-valuetext={`${brushSize} pixels`} type="range" min="5" max="200" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} /><span className="w-10 text-right">{brushSize}px</span></label>
       <div className="ml-auto flex shrink-0 items-center gap-1" role="group" aria-label="Stroke history">
-        <button type="button" className="studio-icon-button" disabled={!strokes.length} onClick={undo} aria-label="Undo stroke"><Undo2 className="size-4" /></button>
-        <button type="button" className="studio-icon-button" disabled={!redoStrokes.length} onClick={redo} aria-label="Redo stroke"><Redo2 className="size-4" /></button>
-        <button type="button" className="studio-icon-button" disabled={!strokes.length && !inverted} onClick={clear} aria-label="Clear mask"><Trash2 className="size-4" /></button>
-        <button type="button" onClick={toggleInverted} aria-pressed={inverted} className="studio-button-secondary px-3 text-xs" aria-label="Invert editable area"><RotateCcw className="size-4" />{inverted ? "Normal" : "Invert"}</button>
+        <Button type="button" variant="outline" size="icon" disabled={!strokes.length} onClick={undo} aria-label="Undo stroke"><Undo2 className="size-4" /></Button>
+        <Button type="button" variant="outline" size="icon" disabled={!redoStrokes.length} onClick={redo} aria-label="Redo stroke"><Redo2 className="size-4" /></Button>
+        <Button type="button" variant="outline" size="icon" disabled={!strokes.length && !inverted} onClick={clear} aria-label="Clear mask"><Trash2 className="size-4" /></Button>
+        <Button type="button" variant="outline" onClick={toggleInverted} aria-pressed={inverted} className="px-3 text-xs" aria-label="Invert editable area"><RotateCcw className="size-4" />{inverted ? "Normal" : "Invert"}</Button>
       </div>
       <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Zoom controls">
-        <button type="button" onClick={() => setView({ zoom: 1, x: 0, y: 0 })} aria-pressed={view.zoom === 1} aria-label="Fit image to view" className="studio-icon-button"><Maximize className="size-4" /></button>
-        <button type="button" onClick={() => zoomTo(hundredZoom)} aria-pressed={Math.abs(stageScale - 1) < 0.001} aria-label={hundredZoom > highestZoom ? `Zoom to 100 percent unavailable, this image exceeds the ${highestZoom}× zoom limit` : "Zoom to 100 percent"} disabled={hundredZoom > highestZoom} title={hundredZoom > highestZoom ? `This image needs ${Math.round(hundredZoom * 10) / 10}× fit scale to show every pixel, beyond the ${highestZoom}× limit` : "View at 100%"} className="studio-icon-button text-[11px] font-semibold"><span>100%</span></button>
-        <button type="button" onClick={() => zoomTo(view.zoom / ZOOM_STEP)} disabled={view.zoom <= lowestZoom} aria-label="Zoom out" className="studio-icon-button"><ZoomOut className="size-4" /></button>
-        <button type="button" onClick={() => zoomTo(view.zoom * ZOOM_STEP)} disabled={view.zoom >= highestZoom} aria-label="Zoom in" className="studio-icon-button"><ZoomIn className="size-4" /></button>
-        <span className="w-12 text-right text-xs text-[var(--muted)]">{zoomPercent}%</span>
+        <Button type="button" variant="outline" size="icon" onClick={() => setView({ zoom: 1, x: 0, y: 0 })} aria-pressed={view.zoom === 1} aria-label="Fit image to view"><Maximize className="size-4" /></Button>
+        <Button type="button" variant="outline" size="icon" onClick={() => zoomTo(hundredZoom)} aria-pressed={Math.abs(stageScale - 1) < 0.001} aria-label={hundredZoom > highestZoom ? `Zoom to 100 percent unavailable, this image exceeds the ${highestZoom}× zoom limit` : "Zoom to 100 percent"} disabled={hundredZoom > highestZoom} title={hundredZoom > highestZoom ? `This image needs ${Math.round(hundredZoom * 10) / 10}× fit scale to show every pixel, beyond the ${highestZoom}× limit` : "View at 100%"} className="text-[11px] font-semibold"><span>100%</span></Button>
+        <Button type="button" variant="outline" size="icon" onClick={() => zoomTo(view.zoom / ZOOM_STEP)} disabled={view.zoom <= lowestZoom} aria-label="Zoom out"><ZoomOut className="size-4" /></Button>
+        <Button type="button" variant="outline" size="icon" onClick={() => zoomTo(view.zoom * ZOOM_STEP)} disabled={view.zoom >= highestZoom} aria-label="Zoom in"><ZoomIn className="size-4" /></Button>
+        <span className="w-12 text-right text-xs text-muted-foreground">{zoomPercent}%</span>
       </div>
     </div>
     <div ref={stageAreaRef} className="checker-stage relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden p-3">
       {imageFailed ? (
-        <div role="alert" className="studio-card flex max-w-sm flex-col items-center gap-3 p-6 text-center">
-          <p className="text-sm text-[var(--text)]">The image could not be loaded, so the edit area cannot be painted.</p>
-          <button type="button" onClick={() => setAttempt((value) => value + 1)} className="studio-button-secondary"><RefreshCw className="size-4" />Retry</button>
-        </div>
+        <Card role="alert" className="max-w-sm items-center gap-3 p-6 text-center">
+          <p className="text-sm text-foreground">The image could not be loaded, so the edit area cannot be painted.</p>
+          <Button type="button" variant="outline" onClick={() => setAttempt((value) => value + 1)}><RefreshCw className="size-4" />Retry</Button>
+        </Card>
       ) : !image ? (
-        <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="size-4 animate-spin" />Loading image…</p>
+        <p role="status" className="flex items-center gap-2 text-sm text-stage-muted"><LoaderCircle className="size-4 animate-spin" />Loading image…</p>
       ) : (
         <Stage
           width={viewport.width}
@@ -315,9 +323,9 @@ export default function MaskEditor({
         </Stage>
       )}
     </div>
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--panel)] p-3">
-      <span role="status" className={`text-xs ${maskReady ? "text-[var(--success)]" : "text-[var(--muted)]"}`}>{maskReady ? `Mask ready · ${strokes.length} stroke${strokes.length === 1 ? "" : "s"} · exported automatically` : "Paint at least one edit region"}</span>
-      <span className="text-xs text-[var(--muted)]">{inverted ? "Inverted · the untouched area is edited" : "Painted area is edited"}</span>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted p-3">
+      <span role="status" className={`text-xs ${maskReady ? "text-success" : "text-muted-foreground"}`}>{maskReady ? `Mask ready · ${strokes.length} stroke${strokes.length === 1 ? "" : "s"} · exported automatically` : "Paint at least one edit region"}</span>
+      <span className="text-xs text-muted-foreground">{inverted ? "Inverted · the untouched area is edited" : "Painted area is edited"}</span>
     </div>
   </div>;
 }

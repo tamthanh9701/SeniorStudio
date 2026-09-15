@@ -4,6 +4,8 @@ import { Check, LoaderCircle, RotateCcw, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 /**
  * Review actions for a candidate version: it differs from the version the asset
@@ -62,36 +64,40 @@ export default function VersionReviewActions({
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row">
-        <button type="button" onClick={() => void keep()} disabled={keeping} className="studio-button-primary sm:flex-1">
+        <Button type="button" onClick={() => void keep()} disabled={keeping} className="sm:flex-1">
           {keeping ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
           {keeping ? "Keeping edit…" : "Keep edit"}
-        </button>
-        <Link href={discardHref} className="studio-button-secondary sm:flex-1">
-          <Undo2 className="size-4" />
-          Discard
-        </Link>
+        </Button>
+        <Button asChild variant="outline" className="sm:flex-1">
+          <Link href={discardHref}>
+            <Undo2 className="size-4" />
+            Discard
+          </Link>
+        </Button>
       </div>
-      <p aria-live="polite" className="text-xs text-[var(--muted)]">
+      <p aria-live="polite" className="text-xs text-muted-foreground">
         {keeping ? "Making this edit the current version…" : "Discard leaves the current version unchanged. The unselected version remains in history."}
       </p>
       {error && (
-        <div role="alert" className="flex flex-col gap-2 rounded-xl bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] p-3 text-sm text-[var(--danger)] sm:flex-row sm:items-center sm:justify-between">
+        <Alert variant="destructive" className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span>{error}</span>
           {conflict && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => {
                 setConflict(false);
                 setError(null);
                 router.refresh();
               }}
-              className="studio-button-secondary min-h-9 py-1.5 text-xs"
+              className="text-xs"
             >
               <RotateCcw className="size-3.5" />
               Reload
-            </button>
+            </Button>
           )}
-        </div>
+        </Alert>
       )}
     </div>
   );

@@ -1,4 +1,45 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * shadcn/ui token bridge.
+ *
+ * The application keeps its own palette (--canvas, --surface, --accent, ...).
+ * The @theme mapping below exposes those values under shadcn's utility names so
+ * the generated primitives style themselves from the same source instead of a
+ * second, competing palette.
+ */
+@theme inline {
+  --color-background: var(--canvas);
+  --color-foreground: var(--text);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--surface-hover);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--panel);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--surface-hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+  --color-stage: var(--stage);
+  --color-stage-raised: var(--stage-raised);
+  --color-stage-text: var(--stage-text);
+  --color-stage-muted: var(--stage-muted);
+  --radius-sm: calc(var(--control-radius) - 4px);
+  --radius-md: var(--control-radius);
+  --radius-lg: var(--card-radius);
+  --radius-xl: calc(var(--card-radius) + 4px);
+}
 
 :root {
   color-scheme: dark;
@@ -61,7 +102,6 @@ body {
 }
 button, input, textarea, select { font: inherit; }
 button, a, input, textarea, select { outline: none; }
-button, a, select { min-height: 44px; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--text); }
@@ -72,23 +112,12 @@ button:disabled { cursor: not-allowed; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 28%, transparent); border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 48%, transparent); border: 3px solid transparent; background-clip: padding-box; }
 
-@layer components {
-  .studio-card { @apply border shadow-sm; background: var(--surface); border-color: var(--border); border-radius: var(--card-radius); }
-  .studio-control { @apply min-h-11 w-full border px-3 text-sm transition; background: var(--surface); border-color: var(--border); color: var(--text); border-radius: var(--control-radius); }
-  .studio-control::placeholder { color: var(--placeholder); }
-  .studio-control:hover { border-color: var(--border-strong); }
-  .studio-control:focus { border-color: var(--accent); }
-  .studio-button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition disabled:opacity-45; }
-  .studio-button-primary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition disabled:opacity-45; background: var(--accent); }
-  .studio-button-primary:hover { background: var(--accent-hover); }
-  .studio-button-secondary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:opacity-45; background: var(--surface); border-color: var(--border); color: var(--text); }
-  .studio-button-secondary:hover { background: var(--surface-hover); }
-  .studio-button-danger { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:opacity-45; border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-  .studio-label { @apply mb-2 block text-xs font-semibold tracking-wide; color: var(--muted); }
-  .studio-muted { @apply text-sm; color: var(--muted); }
-  .studio-icon-button { @apply inline-flex size-11 shrink-0 items-center justify-center rounded-xl border transition disabled:opacity-40; border-color: var(--border); background: var(--surface); color: var(--muted); }
-  .studio-icon-button:hover { background: var(--surface-hover); color: var(--text); }
+@layer base {
+  /* Tailwind v4 removed the default border colour, so a bare `border` utility
+     would paint in currentColor.  shadcn's primitives rely on the default. */
+  *, ::after, ::before, ::backdrop, ::file-selector-button { border-color: var(--border); }
 }
+
 
 .checker-stage {
   color: var(--stage-text);

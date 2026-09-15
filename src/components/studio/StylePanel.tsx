@@ -5,6 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { StyleSetupState } from "@/lib/style/confirmed-definition";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type LibraryItem = { id: string; name: string; sort_order: number };
 type StyleListItem = {
@@ -23,6 +31,9 @@ const SETUP_STATUS: Record<StyleSetupState, string> = {
   review: "Ready to review",
   ready: "Confirmed and ready",
 };
+
+/** Radix Select and ToggleGroup reject empty values, so "All libraries" uses a sentinel. */
+const ALL_LIBRARIES = "__all__";
 
 function setupStateOf(style: StyleListItem): StyleSetupState {
   return style.setupState ?? (style.status === "active" ? "ready" : "references");
@@ -95,43 +106,54 @@ export default function StylePanel() {
     (style) => (statusFilter === "all" || style.status === statusFilter) && style.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
-  return <div className="space-y-4 text-[var(--text)]">
+  return <div className="space-y-4 text-foreground">
     <div className="flex flex-col gap-3 sm:flex-row">
-      <input value={newName} onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create(); }} placeholder="Name your style group" aria-label="New style name" className="studio-control min-w-0 flex-1" />
-      <button onClick={() => void create()} disabled={!newName.trim() || busy !== null} aria-label="Create style" className="studio-button-primary shrink-0">
+      <Input value={newName} onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create(); }} placeholder="Name your style group" aria-label="New style name" className="min-w-0 flex-1" />
+      <Button onClick={() => void create()} disabled={!newName.trim() || busy !== null} aria-label="Create style" className="shrink-0">
         {busy === "create" ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Create style
-      </button>
+      </Button>
     </div>
-    {feedback && <p role="alert" className={`text-sm ${feedback.kind === "error" ? "text-[var(--danger)]" : "text-[var(--success)]"}`}>{feedback.text}</p>}
+    {feedback && <Alert variant={feedback.kind === "error" ? "destructive" : "default"} role="alert" className="px-3 py-2"><AlertDescription className={feedback.kind === "error" ? "text-sm" : "text-sm text-success"}>{feedback.text}</AlertDescription></Alert>}
     <div className="flex flex-col gap-3 sm:flex-row">
-      <input className="studio-control" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search style groups" aria-label="Search style groups" />
-      <select className="studio-control sm:max-w-40" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "draft")} aria-label="Filter style groups">
-        <option value="all">All statuses</option>
-        <option value="active">Active</option>
-        <option value="draft">Drafts</option>
-      </select>
+      <Input className="min-w-0 flex-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search style groups" aria-label="Search style groups" />
+      <Select value={statusFilter} onValueChange={(next) => setStatusFilter(next as "all" | "active" | "draft")}>
+        <SelectTrigger className="w-full sm:max-w-40" aria-label="Filter style groups"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All statuses</SelectItem>
+          <SelectItem value="active">Active</SelectItem>
+          <SelectItem value="draft">Drafts</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
-    {libraries.length > 0 && <div className="flex gap-1 overflow-x-auto pb-2">
-      <button onClick={() => setActiveLibraryId(null)} aria-pressed={activeLibraryId === null} className={`min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium transition-colors ${activeLibraryId === null ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}>All libraries</button>
-      {libraries.map((library) => <button key={library.id} onClick={() => setActiveLibraryId(library.id)} aria-pressed={activeLibraryId === library.id} className={`min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium transition-colors ${activeLibraryId === library.id ? "bg-[var(--accent-subtle)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"}`}>{library.name}</button>)}
-    </div>}
-    {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2"><div className="h-16 animate-pulse rounded-xl bg-[var(--surface-hover)]" /><div className="h-16 animate-pulse rounded-xl bg-[var(--surface-hover)]" /><div className="h-16 animate-pulse rounded-xl bg-[var(--surface-hover)]" /></div>}
-    {!stylesLoading && visibleStyles.length === 0 && <p className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">No matching style groups.</p>}
+    {libraries.length > 0 && <ToggleGroup
+      type="single"
+      spacing={1}
+      value={activeLibraryId ?? ALL_LIBRARIES}
+      onValueChange={(next) => { if (next) setActiveLibraryId(next === ALL_LIBRARIES ? null : next); }}
+      className="flex w-fit max-w-full justify-start overflow-x-auto pb-2"
+    >
+      <ToggleGroupItem value={ALL_LIBRARIES} className="min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary">All libraries</ToggleGroupItem>
+      {libraries.map((library) => <ToggleGroupItem key={library.id} value={library.id} className="min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary">{library.name}</ToggleGroupItem>)}
+    </ToggleGroup>}
+    {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2"><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div>}
+    {!stylesLoading && visibleStyles.length === 0 && <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No matching style groups.</p>}
     <ul className="space-y-3">
       {visibleStyles.map((style) => {
         const setupState = setupStateOf(style);
         const ready = setupState === "ready";
-        return <li key={style.id} className="studio-card flex flex-wrap items-center gap-3 p-4">
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 font-medium">
-              <span aria-hidden className={style.status === "active" ? "text-[var(--success)]" : "text-[var(--muted)]"}>{style.status === "active" ? "●" : "○"}</span>
-              <span className="truncate">{style.name}</span>
-            </p>
-            <p className="mt-1 text-xs text-[var(--muted)]">{SETUP_STATUS[setupState]} · {style.referenceCount}/8 reference images</p>
-          </div>
-          <Link href={`/style/${style.id}?tab=${ready ? "images" : "references"}`} className={`${ready ? "studio-button-secondary" : "studio-button-primary"} shrink-0`}>
-            {ready ? "Open style" : "Continue setup"}
-          </Link>
+        return <li key={style.id}>
+          <Card className="flex-row flex-wrap items-center gap-3 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-2 font-medium">
+                <span aria-hidden className={style.status === "active" ? "text-success" : "text-muted-foreground"}>{style.status === "active" ? "●" : "○"}</span>
+                <span className="truncate">{style.name}</span>
+              </p>
+              <Badge variant="secondary" className="mt-2">{SETUP_STATUS[setupState]} · {style.referenceCount}/8 reference images</Badge>
+            </div>
+            <Button asChild variant={ready ? "outline" : "default"} className="shrink-0">
+              <Link href={`/style/${style.id}?tab=${ready ? "images" : "references"}`}>{ready ? "Open style" : "Continue setup"}</Link>
+            </Button>
+          </Card>
         </li>;
       })}
     </ul>

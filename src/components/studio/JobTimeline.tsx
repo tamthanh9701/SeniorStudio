@@ -2,11 +2,38 @@
 
 import { AlertTriangle, Check, LoaderCircle, RotateCcw, Square } from "lucide-react";
 import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 import type { AiJob, AiJobStatus, ProjectJobFeedItem } from "@/db/ai-jobs";
 import { JOB_STATUS_LABELS, jobErrorMessage } from "@/lib/ai/presentation";
 import { formatTime } from "@/lib/format/datetime";
 
 const ACTIVE_STEPS: readonly AiJobStatus[] = ["queued", "submitting", "processing", "persisting", "succeeded"];
+const TERMINAL_STATUSES: readonly AiJobStatus[] = ["succeeded", "failed", "canceled"];
+
+const STATUS_BADGE_VARIANT: Record<AiJobStatus, "default" | "secondary" | "destructive" | "outline"> = {
+  queued: "default",
+  submitting: "default",
+  processing: "default",
+  persisting: "default",
+  succeeded: "secondary",
+  failed: "destructive",
+  canceled: "outline",
+};
+
+const STATUS_DOT_CLASS: Record<AiJobStatus, string> = {
+  queued: "animate-pulse bg-primary",
+  submitting: "animate-pulse bg-primary",
+  processing: "animate-pulse bg-primary",
+  persisting: "animate-pulse bg-primary",
+  succeeded: "bg-success",
+  failed: "bg-destructive",
+  canceled: "bg-muted-foreground",
+};
 
 export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }: {
   items: ProjectJobFeedItem[];
@@ -14,39 +41,99 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
   onCancel: (job: AiJob) => void;
   onSelectResult: (result: { url: string; assetId?: string }) => void;
 }) {
-  return <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-8 sm:px-6">
-    {items.map(({ job, result_urls }) => {
-      const segments = job.status === "failed" || job.status === "canceled"
-        ? [...ACTIVE_STEPS.slice(0, -1), job.status]
-        : ACTIVE_STEPS;
-      const currentIndex = segments.indexOf(job.status);
-      const results = Array.isArray(job.output.results) ? job.output.results as Array<{ asset_id?: string }> : [];
-      return <article key={job.id} className="space-y-4">
-        <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-[var(--accent)] px-4 py-3 text-sm leading-6 text-white shadow-lg shadow-blue-500/10"><p className="whitespace-pre-wrap">{job.input.original_prompt ?? job.input.prompt}</p><time className="mt-2 block text-[11px] text-white/65">{formatTime(job.created_at)}</time></div>
-        <div className="studio-card overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3"><div className="flex items-center gap-2"><span className={`size-2 rounded-full ${job.status === "succeeded" ? "bg-[var(--success)]" : job.status === "failed" ? "bg-[var(--danger)]" : job.status === "canceled" ? "bg-[var(--muted)]" : "animate-pulse bg-[var(--accent)]"}`} /><strong className="text-sm">{JOB_STATUS_LABELS[job.status]}</strong></div><span className="text-xs text-[var(--muted)]">{job.provider === "google" ? "Google AI Studio" : "OpenAI"} · {job.model}</span></div><div className="p-4"><ol className="grid gap-1" style={{ gridTemplateColumns: `repeat(${segments.length}, minmax(0, 1fr))` }} aria-label={`Job progress: ${JOB_STATUS_LABELS[job.status]}`}>{segments.map((status, index) => <li key={status} className="min-w-0"><span className={`block h-1.5 rounded-full ${index <= currentIndex ? status === "failed" ? "bg-[var(--danger)]" : status === "canceled" ? "bg-[var(--muted)]" : "bg-[var(--accent)]" : "bg-[var(--surface-hover)]"}`} /><span className="sr-only">{JOB_STATUS_LABELS[status]}</span></li>)}</ol>{!["succeeded", "failed", "canceled"].includes(job.status) && <p role="status" className="mt-4 flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="size-4 animate-spin" />{JOB_STATUS_LABELS[job.status]}</p>}{job.status === "succeeded" && result_urls.length > 0 && <div className={`mt-4 grid gap-3 ${result_urls.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>{result_urls.map((url, index) => <button key={url} aria-label={`Open generated result ${index + 1}`} onClick={() => onSelectResult({ url, assetId: results[index]?.asset_id })} className="group relative min-h-0 overflow-hidden rounded-xl border border-[var(--border)] bg-black"><img src={url} alt={`Generated result ${index + 1}`} className="aspect-square h-full w-full object-cover transition group-hover:opacity-90" /><span className="absolute bottom-2 right-2 flex size-8 items-center justify-center rounded-lg bg-black/60 text-white"><Check className="size-4" /></span></button>)}</div>}{job.status === "failed" && <FailedCard job={job} onRetry={onRetry} />}{job.status === "queued" && <button className="studio-button-secondary mt-4" onClick={() => onCancel(job)}><Square className="size-3.5" />Cancel</button>}</div></div>
-      </article>;
-    })}
-  </div>;
+  return (
+    <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-8 sm:px-6">
+      {items.map(({ job, result_urls }) => {
+        const running = !TERMINAL_STATUSES.includes(job.status);
+        const stepIndex = ACTIVE_STEPS.indexOf(job.status);
+        const progress = stepIndex < 0 ? 0 : Math.round(((stepIndex + 1) / ACTIVE_STEPS.length) * 100);
+        const results = Array.isArray(job.output.results) ? job.output.results as Array<{ asset_id?: string }> : [];
+        return (
+          <article key={job.id} className="space-y-4">
+            <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground shadow-lg shadow-blue-500/10">
+              <p className="whitespace-pre-wrap">{job.input.original_prompt ?? job.input.prompt}</p>
+              <time className="mt-2 block text-[11px] text-white/65">{formatTime(job.created_at)}</time>
+            </div>
+            <Card className="gap-0 overflow-hidden p-0">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <Badge variant={STATUS_BADGE_VARIANT[job.status]} className="gap-2">
+                  <span aria-hidden className={cn("size-2 rounded-full", STATUS_DOT_CLASS[job.status])} />
+                  {JOB_STATUS_LABELS[job.status]}
+                </Badge>
+                <span className="text-xs text-muted-foreground">{job.provider === "google" ? "Google AI Studio" : "OpenAI"} · {job.model}</span>
+              </div>
+              <CardContent className="p-4">
+                {running && <Progress value={progress} aria-label={`Job progress: ${JOB_STATUS_LABELS[job.status]}`} />}
+                {running && (
+                  <p role="status" className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="size-4 animate-spin" />
+                    {JOB_STATUS_LABELS[job.status]}
+                  </p>
+                )}
+                {job.status === "succeeded" && result_urls.length > 0 && (
+                  <div className={cn("mt-4 grid gap-3", result_urls.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+                    {result_urls.map((url, index) => (
+                      <button key={url} aria-label={`Open generated result ${index + 1}`} onClick={() => onSelectResult({ url, assetId: results[index]?.asset_id })} className="group relative min-h-0 overflow-hidden rounded-xl border border-border bg-black">
+                        <img src={url} alt={`Generated result ${index + 1}`} className="aspect-square h-full w-full object-cover transition group-hover:opacity-90" />
+                        <span className="absolute bottom-2 right-2 flex size-8 items-center justify-center rounded-lg bg-black/60 text-white">
+                          <Check className="size-4" />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {job.status === "failed" && <FailedCard job={job} onRetry={onRetry} />}
+                {job.status === "queued" && (
+                  <Button variant="outline" className="mt-4" onClick={() => onCancel(job)}>
+                    <Square className="size-3.5" />
+                    Cancel
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </article>
+        );
+      })}
+    </div>
+  );
 }
 
-const CONFIRM_CODES = new Set(["VERSION_CONFLICT", "FILE_TOO_LARGE", "INVALID_REQUEST", "MALFORMED_PROVIDER_OUTPUT"]);
+const CONFIRM_CODES: Record<string, true> = {
+  VERSION_CONFLICT: true,
+  FILE_TOO_LARGE: true,
+  INVALID_REQUEST: true,
+  MALFORMED_PROVIDER_OUTPUT: true,
+};
 
 function FailedCard({ job, onRetry }: { job: AiJob; onRetry: (job: AiJob) => void }) {
   const [confirming, setConfirming] = useState(false);
-  const needsConfirm = confirming && CONFIRM_CODES.has(job.error_code ?? "");
+  const needsConfirm = confirming && CONFIRM_CODES[job.error_code ?? ""] === true;
   return (
-    <div role="alert" className="mt-4 rounded-xl border border-[var(--danger)]/25 bg-[var(--danger)]/10 p-3">
-      <p className="flex gap-2 text-sm font-medium text-[var(--danger)]"><AlertTriangle className="size-4 shrink-0" />{jobErrorMessage(job.error_code)}</p>
-      {(job.error_code || job.error_message) && <p className="mt-1 text-xs text-[var(--muted)]">{[job.error_code, job.error_message].filter(Boolean).join(" — ")}</p>}
+    <Alert variant="destructive" role="alert" className="mt-4">
+      <AlertTriangle />
+      <AlertTitle>{jobErrorMessage(job.error_code)}</AlertTitle>
+      {(job.error_code || job.error_message) && (
+        <AlertDescription>{[job.error_code, job.error_message].filter(Boolean).join(" — ")}</AlertDescription>
+      )}
       {needsConfirm ? (
-        <div className="mt-3 flex items-center gap-2">
-          <p className="text-xs text-[var(--text)]">Retrying may create new images with additional API costs. Continue?</p>
-          <button className="studio-button-secondary" onClick={() => { setConfirming(false); onRetry(job); }}><RotateCcw className="size-4" />Try again</button>
-          <button className="studio-button-secondary" onClick={() => setConfirming(false)}>Cancel</button>
+        <div className="col-start-2 mt-3 flex flex-wrap items-center gap-2">
+          <p className="text-xs text-foreground">Retrying may create new images with additional API costs. Continue?</p>
+          <Button variant="outline" onClick={() => { setConfirming(false); onRetry(job); }}>
+            <RotateCcw className="size-4" />
+            Try again
+          </Button>
+          <Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button>
         </div>
       ) : (
-        <button className="studio-button-secondary mt-3" onClick={() => { if (CONFIRM_CODES.has(job.error_code ?? "")) setConfirming(true); else onRetry(job); }}><RotateCcw className="size-4" />Try again</button>
+        <Button
+          variant="outline"
+          className="col-start-2 mt-3 justify-self-start"
+          onClick={() => { if (CONFIRM_CODES[job.error_code ?? ""] === true) setConfirming(true); else onRetry(job); }}
+        >
+          <RotateCcw className="size-4" />
+          Try again
+        </Button>
       )}
-    </div>
+    </Alert>
   );
 }
