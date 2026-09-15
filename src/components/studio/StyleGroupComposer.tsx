@@ -271,10 +271,19 @@ export default function StyleGroupComposer({
                 )}
               </>
             ) : (
-              <p role="alert" className="text-sm text-[var(--danger)]">
-                {job.error_message || (job.status === "canceled" ? "Generation was canceled." : "Generation failed.")}
-                {" "}{submittedHere ? "Your description is still here — try again." : ""}
-              </p>
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-[var(--danger)]">
+                  {submittedHere ? "" : "Your last generation failed. "}
+                  {job.error_message || (job.status === "canceled" ? "Generation was canceled." : "Generation failed.")}
+                </p>
+                {/* A reloaded page shows the previous attempt; make the state
+                    current and give the user the next action. */}
+                {!submittedHere && job.status === "failed" && (
+                  <button type="button" className="studio-button-secondary" onClick={() => setJob(null)}>
+                    Try again
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

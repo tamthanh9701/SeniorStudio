@@ -1,16 +1,22 @@
 import { NextResponse } from "next/server";
 import { getEnv } from "@/env";
 import { getServiceClient } from "@/supabase/server";
-import { processAiJob, type WorkerOutcome } from "@/lib/ai/worker";
+import { LEASE_SECONDS, processAiJob, type WorkerOutcome } from "@/lib/ai/worker";
+
+// Image generation with reference images can take a while; the platform allows
+// 300 seconds for this project, and the route must state it rather than inherit
+// whatever the dashboard default happens to be.
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const expected = `Bearer ${getEnv().AI_WORKER_SECRET}`;
   if (request.headers.get("authorization") !== expected) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   const client = getServiceClient();
   const workerId = `vercel-${crypto.randomUUID()}`;
+  const startedAt = Date.now();
   const { data: expired, error: expireError } = await client.rpc("expire_stale_ai_jobs", { p_limit: 20 });
   if (expireError) return NextResponse.json({ error: expireError.message }, { status: 500 });
-  const { data: jobs, error } = await client.rpc("claim_ai_jobs", { p_worker_id: workerId, p_limit: 3, p_lease_seconds: 120 });
+  const { data: jobs, error } = await client.rpc("claim_ai_jobs", { p_worker_id: workerId, p_limit: 3, p_lease_seconds: LEASE_SECONDS });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   await client.from("service_heartbeats").upsert(
     { service: "ai_worker", last_seen_at: new Date().toISOString() },
@@ -28,6 +34,7 @@ export async function POST(request: Request) {
       hasRejection = true;
     }
   }
+  console.log(`ai_worker_invocation claimed=${jobs?.length ?? 0} expired=${expired?.length ?? 0} elapsed_ms=${Date.now() - startedAt}`);
   if (hasRejection) {
     return NextResponse.json({ error: "One or more jobs failed" }, { status: 500 });
   }

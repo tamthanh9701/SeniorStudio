@@ -11,9 +11,13 @@ import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types
 import { ProviderError } from "@/lib/ai/providers/types";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { getOwnedAssetVersion, getOwnedJobMask, getOwnedStyleReference, downloadOwnedBytes, removeOwnedObjects, ownedStorageObjectFromPath } from "@/lib/assets/ownership";
+/** Lease duration; the provider budget below must stay under it. */
+export const LEASE_SECONDS = 180;
 const MAX_BYTES = 50 * 1024 * 1024;
 const MAX_PIXELS = 100_000_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
+/** Provider budget: shorter than the lease so a hung call fails visibly. */
+const PROVIDER_TIMEOUT_MS = 150_000;
 
 type CompletedSubmission = Extract<ProviderSubmission, { state: "completed" }>;
 
@@ -63,7 +67,7 @@ async function cleanMask(client: SupabaseClient, job: AiJob) {
   if (error) throw error;
 }
 async function renew(client: SupabaseClient, job: AiJob, workerId: string) {
-  const { error } = await client.rpc("renew_ai_job_lease", { p_job_id: job.id, p_worker_id: workerId, p_lease_seconds: 120 });
+  const { error } = await client.rpc("renew_ai_job_lease", { p_job_id: job.id, p_worker_id: workerId, p_lease_seconds: LEASE_SECONDS });
   if (error) throw error;
 }
 
@@ -75,34 +79,48 @@ export async function withLeaseHeartbeat<T>(
 ): Promise<T> {
   // Renew immediately at entry so the lease is fresh before work starts.
   await renew(client, job, workerId);
-  let firstError: unknown = null;
+  // Only a proven loss of the lease is fatal.  A transient renewal failure must
+  // not stop later renewals: latching it guaranteed the lease would expire while
+  // the provider call was still running, which the cleanup sweep then reported
+  // as an unknown provider outcome.
+  let leaseLost: unknown = null;
+  let lastRenewalError: unknown = null;
   let inFlight: Promise<void> | null = null;
   let stopped = false;
+  const attemptRenewal = async () => {
+    try {
+      await renew(client, job, workerId);
+      lastRenewalError = null;
+    } catch (error) {
+      // Supabase errors are message-like objects, not always Error instances.
+      const message = normalizeErrorMessage(error);
+      lastRenewalError = error;
+      if (message.includes("LEASE_NOT_OWNED")) leaseLost ??= error;
+      console.error(`ai_job_lease_renewal_failed job=${job.id} worker=${workerId} fatal=${message.includes("LEASE_NOT_OWNED")} error=${message}`);
+    }
+  };
   const heartbeat = () => {
-    if (inFlight || firstError) return;
-    inFlight = renew(client, job, workerId)
-      .then(() => undefined)
-      .catch((error) => { firstError ??= error; })
-      .finally(() => { inFlight = null; });
+    if (inFlight) return;
+    inFlight = attemptRenewal().finally(() => { inFlight = null; });
   };
   const timer = setInterval(() => { if (!stopped) heartbeat(); }, 30_000);
+  const stopAndSettle = async () => {
+    stopped = true;
+    clearInterval(timer);
+    if (inFlight) await inFlight.catch(() => undefined);
+  };
+
   try {
     const result = await task();
-    // Stop scheduling, then wait for any in-flight renewal so a racing
-    // lease loss still surfaces before the caller starts persistence.
-    stopped = true;
-    clearInterval(timer);
-    if (inFlight) await inFlight;
-    if (firstError) throw firstError;
+    await stopAndSettle();
+    if (leaseLost) throw leaseLost;
+    // Verify the lease is still ours before the caller persists anything; a
+    // transient failure above is tolerable if a fresh renewal succeeds.
+    if (lastRenewalError) await renew(client, job, workerId);
     return result;
   } catch (error) {
-    stopped = true;
-    clearInterval(timer);
-    // Same guarantee on failure paths: a renewal error beats task errors.
-    try {
-      if (inFlight) await inFlight;
-    } catch { /* renewal error already recorded */ }
-    if (firstError) throw firstError;
+    await stopAndSettle();
+    if (leaseLost) throw leaseLost;
     throw error;
   }
 }
@@ -323,7 +341,7 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
   try {
     const prepared = await prepareInputImages(client, job);
     const { inputImages, maskBytes } = prepared;
-    const context = { client, job, apiKey, inputImages, maskBytes, signal: AbortSignal.timeout(150_000) };
+    const context = { client, job, apiKey, inputImages, maskBytes, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) };
     if (job.status === "processing" && job.provider === "google" && job.provider_request_id) {
       const result = await withLeaseHeartbeat(client, job, workerId, () => provider.poll(context));
       if (result.state === "processing") {
