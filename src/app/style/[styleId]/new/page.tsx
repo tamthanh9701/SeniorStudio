@@ -29,11 +29,13 @@ export default async function StyleNewImagePage({
   if (sourceVersionId) {
     // An unknown or foreign source version must not silently become a plain
     // new image, so the workspace is told whether the variant is usable.
-    const { data: source } = await supabase
+    const { data: source, error: sourceError } = await supabase
       .from("asset_versions")
-      .select("id, assets!inner(style_id)")
+      .select("id, assets!asset_versions_asset_id_fkey(style_id)")
       .eq("id", sourceVersionId)
+      .eq("assets.style_id", styleId)
       .maybeSingle();
+    if (sourceError) console.error(`variant_link_lookup_failed version=${sourceVersionId} error=${sourceError.message}`);
     if (source) query.set("sourceVersionId", sourceVersionId);
   }
   redirect(`/style/${styleId}?${query.toString()}`);

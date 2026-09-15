@@ -172,6 +172,7 @@ export default function StyleWorkspace({
   initialTab,
   compose = false,
   sourceVersionId = null,
+  initialSourceVersion = null,
   models,
   initialJobs,
   initialDetail,
@@ -181,6 +182,8 @@ export default function StyleWorkspace({
   initialTab: WorkspaceTab;
   compose?: boolean;
   sourceVersionId?: string | null;
+  /** Resolved by the server so a variant works for any version of this style. */
+  initialSourceVersion?: { id: string; prompt: string | null; metadata: Record<string, unknown> } | null;
   models: ModelCatalogEntry[];
   initialJobs: ProjectJobFeedItem[];
   /** Supplied by the server so the first paint shows the style, not a skeleton. */
@@ -286,13 +289,17 @@ export default function StyleWorkspace({
   const sourceVersion = useMemo(() => {
     if (!sourceVersionId) return null;
     const item = initialJobs.find(({ job }) => job.version_id === sourceVersionId);
-    if (!item) return null;
+    const fromJob = item
+      ? { id: item.job.version_id as string, prompt: item.job.input.original_prompt ?? item.job.input.prompt ?? null, metadata: (item.job.style_generation ?? {}) as Record<string, unknown> }
+      : null;
+    if (!initialSourceVersion) return fromJob;
+    // Prefer the server-resolved version; fall back to the job feed only when
+    // that version predates the recorded original prompt.
     return {
-      id: item.job.version_id as string,
-      prompt: item.job.input.original_prompt ?? item.job.input.prompt ?? null,
-      metadata: (item.job.style_generation ?? {}) as Record<string, unknown>,
+      ...initialSourceVersion,
+      prompt: initialSourceVersion.prompt ?? fromJob?.prompt ?? null,
     };
-  }, [initialJobs, sourceVersionId]);
+  }, [initialJobs, initialSourceVersion, sourceVersionId]);
   const showComposer = composerOpen || (detail !== null && gallery.length === 0 && ready);
 
   const selectTab = (next: WorkspaceTab) => { setTab(next); setFeedback(null); };

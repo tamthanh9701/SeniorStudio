@@ -66,6 +66,23 @@ export default async function StyleGroupPage({
     parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })),
   );
 
+  // Resolve the variant source here so any version of this style can be
+  // varied, regardless of how recently it was generated.
+  const sourceVersion = query.sourceVersionId
+    ? await supabase
+        .from("asset_versions")
+        .select("id, prompt, metadata, assets!asset_versions_asset_id_fkey!inner(style_id)")
+        .eq("id", query.sourceVersionId)
+        .eq("assets.style_id", styleId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!data) return null;
+          const metadata = (data.metadata ?? {}) as Record<string, unknown>;
+          const original = typeof metadata.original_prompt === "string" && metadata.original_prompt.trim() ? metadata.original_prompt : null;
+          return { id: data.id, prompt: original, metadata };
+        })
+    : null;
+
   const setupState = getStyleSetupState(style, style.references.length);
   const requestedTab = WORKSPACE_TABS.find((tab) => tab === query.tab);
   const initialTab: WorkspaceTab = requestedTab ?? TAB_FOR_SETUP_STATE[setupState];
@@ -76,6 +93,7 @@ export default async function StyleGroupPage({
       initialTab={initialTab}
       compose={query.compose === "1"}
       sourceVersionId={query.sourceVersionId ?? null}
+      initialSourceVersion={sourceVersion}
       models={modelCatalog}
       initialJobs={initialJobs}
       initialDetail={style}

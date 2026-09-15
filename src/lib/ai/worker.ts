@@ -194,7 +194,7 @@ async function persistJobImages(
       const { error: uploadError } = await client.storage.from(STORAGE_BUCKET).upload(storagePath, decoded.bytes, { contentType: decoded.mimeType, upsert: false });
       if (uploadError) throw uploadError;
       uploadedPaths.push(storagePath);
-      results.push({ asset_id: assetId, version_id: versionId, storage_path: storagePath, mime_type: decoded.mimeType, width: decoded.width, height: decoded.height, byte_size: decoded.bytes.byteLength, name: assetNameFor(job, ownerName, new Date()), prompt: job.input.prompt, provider_response_id: submission.requestId, metadata: { provider: job.provider, model: job.model, operation: job.operation, ...submission.metadata } });
+      results.push({ asset_id: assetId, version_id: versionId, storage_path: storagePath, mime_type: decoded.mimeType, width: decoded.width, height: decoded.height, byte_size: decoded.bytes.byteLength, name: assetNameFor(job, ownerName, new Date()), prompt: job.input.prompt, provider_response_id: submission.requestId, metadata: { provider: job.provider, model: job.model, operation: job.operation, original_prompt: job.input.original_prompt ?? job.input.prompt, ...submission.metadata } });
     }
     const { error } = await client.rpc("complete_ai_job_with_results", { p_job_id: job.id, p_worker_id: workerId, p_provider_request_id: submission.requestId, p_provider_status: providerStatus, p_results: results, p_output: { provider: job.provider, model: job.model, provider_request_id: submission.requestId, operation: job.operation, results, ...submission.metadata } });
     if (error) {

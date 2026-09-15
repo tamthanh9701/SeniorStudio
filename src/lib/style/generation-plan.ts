@@ -105,11 +105,12 @@ export async function resolveStyleGenerationPlan(client: SupabaseClient, request
   // governs the schema and references.
   let variantPacket: StyleGenerationPacket | null = null;
   if (request.operation === "image_to_image" && request.sourceVersionId) {
-    const { data: source } = await client
+    const { data: source, error: sourceError } = await client
       .from("asset_versions")
-      .select("style_generation, assets!inner(style_id)")
+      .select("style_generation, assets!asset_versions_asset_id_fkey(style_id)")
       .eq("id", request.sourceVersionId)
       .maybeSingle();
+    if (sourceError) console.error(`style_variant_source_unreadable version=${request.sourceVersionId} error=${sourceError.message}`);
     const owningStyle = (source as { assets?: { style_id?: string | null } } | null)?.assets?.style_id ?? null;
     if (owningStyle === request.styleId && source?.style_generation) {
       try {
