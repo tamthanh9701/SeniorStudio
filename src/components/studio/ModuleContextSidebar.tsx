@@ -99,7 +99,7 @@ export default function ModuleContextSidebar({ currentModule, recentJobs = [], u
         {contextLabel && (
           <>
             <SectionLabel className="mt-6">Context</SectionLabel>
-            <p className="mt-2 truncate rounded-xl bg-white/[0.06] px-3 py-2.5 text-sm text-white" title={contextLabel}>{contextLabel}</p>
+            <p className="mt-2 truncate rounded-xl bg-[var(--surface-hover)] px-3 py-2.5 text-sm text-[var(--text)]" title={contextLabel}>{contextLabel}</p>
           </>
         )}
         {recentJobs.length > 0 && (
