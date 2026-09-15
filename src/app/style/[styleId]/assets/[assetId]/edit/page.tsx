@@ -226,7 +226,7 @@ export default function StyleInpaintPage() {
             {thumbnails.length === 0 && <p className="text-xs text-[var(--muted)]">No style references are available to preview.</p>}
             {adoptCurrentStyle && <p role="status" className="text-xs text-[var(--warning)]">This image predates its style definition, so the confirmed current style is applied to the edited area.</p>}
             <details className="rounded-xl border border-[var(--border)] p-3">
-              <summary className="cursor-pointer text-xs font-semibold text-[var(--muted)]">Advanced</summary>
+              <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-[var(--muted)]">Advanced</summary>
               <div className="mt-3 space-y-3">
                 <label className="block">
                   <span className="studio-label">Model</span>

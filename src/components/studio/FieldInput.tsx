@@ -29,7 +29,7 @@ export default function FieldInput({ field, inputId = field.key, value, onChange
         <input
           id={`tag-${inputId}`}
           aria-describedby={describedBy}
-          className="min-w-24 flex-1 bg-transparent px-1 py-1 text-sm outline-none"
+          className="min-h-11 min-w-24 flex-1 bg-transparent px-1 py-1 text-sm outline-none"
           placeholder={tags.length === 0 ? field.placeholder : ""}
           value={tagInput}
           onChange={(event) => setTagInput(event.target.value)}
