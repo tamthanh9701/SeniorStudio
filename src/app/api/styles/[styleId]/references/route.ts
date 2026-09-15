@@ -121,6 +121,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       .rpc("add_style_reference", {
         p_style_id: styleId,
         p_reference: {
+          // The row id is chosen here so it always matches the uploaded object
+          // name: the worker resolves a reference by row id and verifies the
+          // object is the one named after it.
+          id: referenceId,
           storage_path: storagePath,
           mime_type: declaredMime,
           byte_size: bytes.byteLength,

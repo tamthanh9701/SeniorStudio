@@ -200,7 +200,7 @@ async function persistJobImages(
     if (error) {
       const resolver = await client.rpc("resolve_ai_job_persistence", { p_job_id: job.id, p_worker_id: workerId, p_version_ids: results.map((result) => result.version_id) });
       if (resolver.error) {
-        throw Object.assign(new Error(`PERSISTENCE_OUTCOME_UNKNOWN: ${resolver.error.message}`), { preserveUploaded: true });
+        throw Object.assign(new Error(`PERSISTENCE_OUTCOME_UNKNOWN: ${resolver.error.message}`), { code: "PERSISTENCE_OUTCOME_UNKNOWN", preserveUploaded: true });
       }
       const state = resolver.data?.state as string | undefined;
       if (state === "committed") return results;
@@ -212,7 +212,7 @@ async function persistJobImages(
         }
         throw new ProviderError("PERSISTENCE_FAILED", "Job persistence was aborted");
       }
-      throw Object.assign(new Error("PERSISTENCE_OUTCOME_UNKNOWN"), { preserveUploaded: true });
+      throw Object.assign(new Error("PERSISTENCE_OUTCOME_UNKNOWN"), { code: "PERSISTENCE_OUTCOME_UNKNOWN", preserveUploaded: true });
     }
     return results;
   } catch (error) {
@@ -371,11 +371,15 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
   } catch (error) {
     const message = normalizeErrorMessage(error);
     if (message.includes("LEASE_NOT_OWNED") || message.includes("lease")) return "lease_lost";
-    // ProviderError carries a `code`, so it must be classified before the
-    // database-error guard below; otherwise a rejected reference or a failed
-    // input download would crash the worker instead of failing the job.
-    if (error instanceof ProviderError) return failJob(client, job, workerId, error.code, message);
-    if (error instanceof PostgrestError || (typeof error === "object" && error !== null && "code" in error)) throw error;
-    return failJob(client, job, workerId, "PROVIDER_ERROR", message);
+    // Everything else is a failed job and must be recorded as one.  Rethrowing
+    // left the lease to expire, and the cleanup sweep then reported the job as
+    // an unknown provider outcome even when no provider call had been made.
+    const code = error instanceof ProviderError || (typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string" && /^[A-Z][A-Z0-9_]{2,}$/.test((error as { code: string }).code))
+      ? (error as { code: string }).code
+      : error instanceof PostgrestError || (typeof error === "object" && error !== null && "code" in error)
+        ? "INFRASTRUCTURE_ERROR"
+        : "PROVIDER_ERROR";
+    console.error(`ai_job_failed job=${job.id} code=${code} error=${message}`);
+    return failJob(client, job, workerId, code, message);
   }
 }
