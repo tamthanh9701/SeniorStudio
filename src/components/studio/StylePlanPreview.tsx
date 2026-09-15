@@ -39,7 +39,7 @@ export function StylePlanPreview({ plan }: { plan: ExecutionPlan }) {
       )}
       {plan.compiledPrompt && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-[var(--muted)] hover:text-[var(--text)]">Compiled prompt</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center text-[var(--muted)] hover:text-[var(--text)]">Compiled prompt</summary>
           <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--surface-hover)] p-3 text-[11px] text-[var(--text)]">{plan.compiledPrompt}</pre>
         </details>
       )}

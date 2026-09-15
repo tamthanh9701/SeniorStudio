@@ -13,11 +13,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClarificationForm from "./ClarificationForm";
 import SchemaEditor from "./SchemaEditor";
 import { StudioDialog } from "./StudioDialog";
 import StyleGroupComposer, { type ComposerReference } from "./StyleGroupComposer";
+import { formatDateTime } from "@/lib/format/datetime";
 import type { AiJob, ProjectJobFeedItem } from "@/db/ai-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import type { StyleClarificationQuestionSet } from "@/lib/style/clarification-questions";
@@ -164,6 +165,8 @@ export default function StyleWorkspace({
   sourceVersionId = null,
   models,
   initialJobs,
+  initialDetail,
+  initialGallery,
 }: {
   styleId: string;
   initialTab: WorkspaceTab;
@@ -171,13 +174,18 @@ export default function StyleWorkspace({
   sourceVersionId?: string | null;
   models: ModelCatalogEntry[];
   initialJobs: ProjectJobFeedItem[];
+  /** Supplied by the server so the first paint shows the style, not a skeleton. */
+  initialDetail?: StyleDetail;
+  initialGallery?: GalleryAsset[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>(initialTab);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialDetail === undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [detail, setDetail] = useState<StyleDetail | null>(null);
-  const [gallery, setGallery] = useState<GalleryAsset[]>([]);
+  const [detail, setDetail] = useState<StyleDetail | null>(initialDetail ?? null);
+  const [gallery, setGallery] = useState<GalleryAsset[]>(initialGallery ?? []);
+  // When the server rendered this style there is nothing to fetch on mount.
+  const serverRendered = useRef(initialDetail !== undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -220,6 +228,9 @@ export default function StyleWorkspace({
   }, [load]);
 
   useEffect(() => {
+    // Server-rendered styles load nothing on mount; callers reload explicitly
+    // after a mutation.
+    if (serverRendered.current) return;
     const timer = window.setTimeout(() => { void refresh(); }, 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
@@ -525,7 +536,7 @@ export default function StyleWorkspace({
   if (loading && !detail) {
     return (
       <div className="min-h-dvh bg-[var(--canvas)] p-6 text-[var(--text)]">
-        <div className="mx-auto max-w-5xl" aria-busy="true">
+        <div className="mx-auto max-w-6xl" aria-busy="true">
           <p className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Loading the style workspace…
           </p>
@@ -537,7 +548,7 @@ export default function StyleWorkspace({
   if (!detail) {
     return (
       <div className="min-h-dvh bg-[var(--canvas)] p-6 text-[var(--text)]">
-        <div className="mx-auto max-w-5xl space-y-4">
+        <div className="mx-auto max-w-6xl space-y-4">
           <div role="alert" className="studio-card space-y-3 p-5 text-sm">
             <p className="flex items-center gap-2 font-medium text-[var(--danger)]">
               <AlertTriangle className="size-4" aria-hidden /> This style could not be loaded
@@ -638,10 +649,10 @@ export default function StyleWorkspace({
         </ul>
       )}
 
-      <div className="studio-card flex flex-wrap items-center gap-3 p-4">
+      <div className="studio-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
-            {analyzedAt ? `Analyzed ${new Date(analyzedAt).toLocaleString()}` : "Not analyzed yet"}
+            {analyzedAt ? `Analyzed ${formatDateTime(analyzedAt)}` : "Not analyzed yet"}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
             {analysisStale
@@ -649,7 +660,7 @@ export default function StyleWorkspace({
               : "The analysis matches the current reference set."}
           </p>
         </div>
-        <button type="button" onClick={() => void analyze()} disabled={references.length === 0 || busy !== null} className="studio-button-primary">
+        <button type="button" onClick={() => void analyze()} disabled={references.length === 0 || busy !== null} className="studio-button-primary w-full sm:w-auto">
           {busy === "analyze" ? <><LoaderCircle className="size-4 animate-spin" /> Analyzing…</> : <><Wand2 className="size-4" aria-hidden /> Analyze references</>}
         </button>
       </div>
@@ -679,8 +690,12 @@ export default function StyleWorkspace({
   const reviewScreen = (
     <section className="space-y-4">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold">Review style</h2>
-        <p className="text-sm text-[var(--muted)]">These rules steer every image generated from this style. Confirm them to start generating.</p>
+        <h2 className="text-lg font-semibold">{ready ? "Style guide" : "Review style"}</h2>
+        <p className="text-sm text-[var(--muted)]">
+          {ready
+            ? "These rules define how every image from this style is rendered. They change only when you confirm an update."
+            : "These rules steer every image generated from this style. Confirm them to start generating."}
+        </p>
       </div>
 
       {candidateChanged && (
@@ -757,7 +772,7 @@ export default function StyleWorkspace({
       </div>
 
       <details className="studio-card p-4">
-        <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+        <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
           <ChevronDown className="size-4" aria-hidden /> Advanced
         </summary>
         <div className="mt-4 space-y-5">
@@ -790,7 +805,7 @@ export default function StyleWorkspace({
 
           {schema && (
             <details>
-              <summary className="cursor-pointer text-xs text-[var(--muted)] hover:text-[var(--text)]">Raw style JSON</summary>
+              <summary className="flex min-h-11 cursor-pointer items-center text-xs text-[var(--muted)] hover:text-[var(--text)]">Raw style JSON</summary>
               <pre className="mt-2 max-h-96 overflow-auto rounded-xl bg-[var(--surface-hover)] p-4 text-xs text-[var(--muted)]">{JSON.stringify(schema, null, 2)}</pre>
             </details>
           )}
@@ -820,7 +835,7 @@ export default function StyleWorkspace({
           <div className="min-w-0 flex-1">
             <p className="studio-label">Confirmed definition</p>
             <p className="text-sm">
-              {confirmed.definition.reference_snapshot.length} reference image(s) · confirmed {new Date(confirmed.definition.confirmed_at).toLocaleString()}
+              {confirmed.definition.reference_snapshot.length} reference image(s) · confirmed {formatDateTime(confirmed.definition.confirmed_at)}
             </p>
           </div>
           {candidateChanged && (
@@ -890,7 +905,7 @@ export default function StyleWorkspace({
   return (
     <div className="min-h-dvh bg-[var(--canvas)] text-[var(--text)]">
       <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--panel)]">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <Link href="/style" className="text-sm text-[var(--muted)] hover:text-[var(--text)]">Styles</Link>
           <span aria-hidden className="text-[var(--muted)]">/</span>
           <h1 className="min-w-0 flex-1 truncate font-semibold">{detail.name}</h1>
@@ -901,7 +916,7 @@ export default function StyleWorkspace({
             <Settings className="size-4" aria-hidden />
           </button>
         </div>
-        <div className="mx-auto max-w-5xl px-4 pb-3 sm:px-6">
+        <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6">
           {ready ? (
             <nav aria-label="Style sections" className="flex flex-wrap gap-1">
               {([["images", "Images"], ["style", "Style guide"], ["references", "References"]] as Array<[WorkspaceTab, string]>).map(([value, label]) => (
@@ -937,7 +952,7 @@ export default function StyleWorkspace({
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-4 px-4 py-6 sm:px-6">
+      <main className="mx-auto max-w-6xl space-y-4 px-4 py-6 sm:px-6">
         <p role="status" aria-live="polite" className="min-h-5 text-xs text-[var(--muted)]">{status}</p>
 
         {feedback && (

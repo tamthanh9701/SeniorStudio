@@ -8,6 +8,7 @@ import { getSignedUrl } from "@/lib/assets/service";
 import ComparisonSlider from "@/components/editor/ComparisonSlider";
 import VersionHistory from "@/components/editor/VersionHistory";
 import VersionReviewActions from "@/components/editor/VersionReviewActions";
+import { formatDateTime } from "@/lib/format/datetime";
 
 /** Reads an optional string out of the untyped jsonb provenance columns. */
 const text = (value: unknown) => (typeof value === "string" && value.length > 0 ? value : null);
@@ -224,7 +225,7 @@ export default async function StyleAssetDetailPage({
             <h2 className="font-semibold">Asset info</h2>
             <div className="space-y-2 text-sm text-[var(--muted)]">
               <p><span className="text-[var(--muted)]">Name:</span> {asset.name}</p>
-              <p><span className="text-[var(--muted)]">Created:</span> {new Date(asset.created_at).toLocaleString()}</p>
+              <p><span className="text-[var(--muted)]">Created:</span> {formatDateTime(asset.created_at)}</p>
               <p><span className="text-[var(--muted)]">Versions:</span> {versions.length}</p>
               {selected?.prompt && (
                 <div>

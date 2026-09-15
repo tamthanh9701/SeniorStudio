@@ -14,20 +14,17 @@ import type { ModelCatalogEntry } from "@/lib/ai/models";
 import { useModuleJobs } from "@/lib/ai/use-module-jobs";
 import type { CostMode } from "@/lib/style/cost-modes";
 
-export default function ProjectWorkspace({ project, projects, userEmail, assets, models, initialJobs, styleProfilesEnabled }: { project: { id: string; name: string }; projects: Array<{ id: string; name: string }>; userEmail: string; assets: WorkspaceAsset[]; models: ModelCatalogEntry[]; initialJobs: ProjectJobFeedItem[]; styleProfilesEnabled: boolean }) {
+export default function ProjectWorkspace({ project, projects, userEmail, assets, models, initialJobs }: { project: { id: string; name: string }; projects: Array<{ id: string; name: string }>; userEmail: string; assets: WorkspaceAsset[]; models: ModelCatalogEntry[]; initialJobs: ProjectJobFeedItem[] }) {
   const router = useRouter();
   const availableModels = useMemo(() => models.filter((model) => model.operations.includes("text_to_image")), [models]);
   const firstModel = availableModels[0];
   const [prompt, setPrompt] = useState("");
   const [settings, setSettings] = useState<GenerationSettings>({ modelId: firstModel?.id ?? "", size: firstModel?.sizes[0] ?? "1024x1024", quality: firstModel?.qualities[0] ?? "auto", count: 1 });
-  const [tool, setTool] = useState<"generate" | "inpaint" | "style">("generate");
-  const [styleId, setStyleId] = useState<string | null>(null);
-  const [costMode, setCostMode] = useState<CostMode>("strict_1000");
+  const [tool, setTool] = useState<"generate" | "inpaint">("generate");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
-  const [styleHighlight, setStyleHighlight] = useState(false);
   const refreshed = useRef(new Set<string>());
   const { items, addJob, syncState, refresh } = useModuleJobs({ module: "projects", projectId: project.id }, initialJobs);
   const activeJobCount = items.filter(({ job }) => !isTerminalStatus(job.status)).length;
@@ -40,7 +37,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
     const selectedModel = availableModels.find((model) => model.id === settings.modelId);
     if (!prompt.trim() || !selectedModel) return;
     setSubmitting(true); setError(null);
-    const response = await fetch(`/api/projects/${project.id}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "text_to_image", model: settings.modelId as SupportedModelId, prompt, count: settings.count, size: settings.size, quality: settings.quality, costMode, ...(styleId ? { styleId } : {}) }) });
+    const response = await fetch(`/api/projects/${project.id}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "text_to_image", model: settings.modelId as SupportedModelId, prompt, count: settings.count, size: settings.size, quality: settings.quality }) });
     const body = await response.json();
     const parsed = AiJobSchema.safeParse(body.job);
     if (response.ok && parsed.success) { addJob(parsed.data); setPrompt(""); setFocusSignal((value) => value + 1); }
@@ -48,7 +45,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
     setSubmitting(false);
   };
   const cancel = async (job: ProjectJobFeedItem["job"]) => { const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" }); const body = await response.json(); const parsed = AiJobSchema.safeParse(body.job); if (response.ok && parsed.success) addJob(parsed.data); else setError(`${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Cancellation failed"}`); };
-  const retry = (job: ProjectJobFeedItem["job"]) => { setPrompt(job.input.original_prompt ?? job.input.prompt); setStyleId(job.input.style_id ?? null); setSettings({ modelId: job.model, size: job.input.size, quality: job.input.quality, count: job.input.count }); setTool("generate"); setFocusSignal((value) => value + 1); setStyleHighlight(true); window.setTimeout(() => setStyleHighlight(false), 4000); };
+  const retry = (job: ProjectJobFeedItem["job"]) => { setPrompt(job.input.original_prompt ?? job.input.prompt); setSettings({ modelId: job.model, size: job.input.size, quality: job.input.quality, count: job.input.count }); setTool("generate"); setFocusSignal((value) => value + 1); };
   const [deleteAssetTarget, setDeleteAssetTarget] = useState<{ id: string; name: string } | null>(null);
   const [deletingAsset, setDeletingAsset] = useState(false);
   const handleDeleteAsset = async () => {
@@ -63,9 +60,9 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
     setDeleteAssetTarget(null);
   };
   const selectResult = ({ url }: { url: string; assetId?: string }) => { const index = canvasAssets.findIndex((asset) => asset.signedUrl === url); if (index >= 0) setSelectedIndex(index); };
-  const inspector = <ToolInspector tool={tool} setTool={setTool} models={availableModels} settings={settings} setSettings={setSettings} selectedAsset={selectedAsset} projectId={project.id} styleId={styleId} setStyleId={setStyleId} styleProfilesEnabled={styleProfilesEnabled} styleHighlight={styleHighlight} />;
+  const inspector = <ToolInspector tool={tool} setTool={setTool} models={availableModels} settings={settings} setSettings={setSettings} selectedAsset={selectedAsset} projectId={project.id} />;
   const sidebar = <ProjectSidebar activeModule="playground" recentJobs={items} userEmail={userEmail} />;
-  const center = <div className="flex h-full min-h-0 flex-col">{syncNotice}<div className="min-h-0 flex-1 overflow-y-auto"><AssetCanvas assets={canvasAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} projectId={project.id} onEmptyFocus={() => setFocusSignal((value) => value + 1)} loadingCount={activeJobCount} onDelete={(assetId) => { const asset = canvasAssets.find((a) => a.id === assetId); if (asset) setDeleteAssetTarget(asset); }} />{items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}</div><GenerationComposer focusSignal={focusSignal} prompt={prompt} setPrompt={setPrompt} settings={settings} selectedModel={availableModels.find((model) => model.id === settings.modelId)} styleId={styleId} costMode={costMode} setCostMode={setCostMode} onOpenSettings={() => undefined} onSubmit={() => void submit()} submitting={submitting} error={error} /></div>;
+  const center = <div className="flex h-full min-h-0 flex-col">{syncNotice}<div className="min-h-0 flex-1 overflow-y-auto"><AssetCanvas assets={canvasAssets} selectedIndex={selectedIndex} onSelect={setSelectedIndex} projectId={project.id} onEmptyFocus={() => setFocusSignal((value) => value + 1)} loadingCount={activeJobCount} onDelete={(assetId) => { const asset = canvasAssets.find((a) => a.id === assetId); if (asset) setDeleteAssetTarget(asset); }} />{items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}</div><GenerationComposer focusSignal={focusSignal} prompt={prompt} setPrompt={setPrompt} settings={settings} selectedModel={availableModels.find((model) => model.id === settings.modelId)} onOpenSettings={() => undefined} onSubmit={() => void submit()} submitting={submitting} error={error} /></div>;
   return <><StudioShell projects={projects} activeProjectId={project.id} userEmail={userEmail} recentJobs={items} leftSidebar={sidebar} center={center} inspector={inspector} /><StudioDialog
     open={Boolean(deleteAssetTarget)}
     onClose={() => !deletingAsset && setDeleteAssetTarget(null)}

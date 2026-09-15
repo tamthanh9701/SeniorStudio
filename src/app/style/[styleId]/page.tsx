@@ -7,6 +7,7 @@ import { getModelCatalog } from "@/lib/ai/models";
 import { AiJobSchema, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { getStyleSetupState, type StyleSetupState } from "@/lib/style/confirmed-definition";
+import { getStyleDetail, listStyleAssets } from "@/lib/style/style-assets";
 
 const WORKSPACE_TABS: readonly WorkspaceTab[] = ["images", "references", "style"];
 
@@ -46,10 +47,12 @@ export default async function StyleGroupPage({
     .single();
   const workspaceId = workspaceMember?.workspace_id;
 
-  const [{ data: style }, { data: jobs }, { count: liveReferences }, modelCatalog] = await Promise.all([
-    supabase.from("styles").select("id, name, status, schema, analysis_meta, confirmed_definition").eq("id", styleId).maybeSingle(),
+  // Style, references and the first gallery page are read here so the workspace
+  // can render real content on first paint instead of fetching it again.
+  const [style, assetsPage, { data: jobs }, modelCatalog] = await Promise.all([
+    getStyleDetail(supabase, styleId),
+    listStyleAssets(supabase, styleId, { limit: 50 }).catch(() => ({ assets: [], nextCursor: null })),
     supabase.from("ai_jobs").select("*").eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(50),
-    supabase.from("style_references").select("id", { count: "exact", head: true }).eq("style_id", styleId).is("retired_at", null),
     workspaceId ? getModelCatalog(supabase, workspaceId) : Promise.resolve([]),
   ]);
 
@@ -63,7 +66,7 @@ export default async function StyleGroupPage({
     parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })),
   );
 
-  const setupState = getStyleSetupState(style, liveReferences ?? 0);
+  const setupState = getStyleSetupState(style, style.references.length);
   const requestedTab = WORKSPACE_TABS.find((tab) => tab === query.tab);
   const initialTab: WorkspaceTab = requestedTab ?? TAB_FOR_SETUP_STATE[setupState];
 
@@ -75,6 +78,8 @@ export default async function StyleGroupPage({
       sourceVersionId={query.sourceVersionId ?? null}
       models={modelCatalog}
       initialJobs={initialJobs}
+      initialDetail={style}
+      initialGallery={assetsPage.assets}
     />
   );
 }

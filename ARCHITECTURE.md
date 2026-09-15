@@ -12,7 +12,7 @@ Persisted states are `queued`, `submitting`, `processing`, `persisting`, `succee
 
 ## Worker scheduling
 
-A scheduled Supabase Edge Function invokes `POST /api/internal/ai-worker` once per minute with `AI_WORKER_SECRET`. The Edge Function contains no provider or service-role logic. PostgreSQL `pg_cron` and `pg_net` configure the schedule when available; deployments that cannot enable those extensions configure the same schedule in the Supabase Dashboard.
+A scheduled Supabase Edge Function invokes `POST /api/internal/ai-worker` with `AI_WORKER_SECRET`; the deployed schedule runs every 5 seconds. The Edge Function contains no provider or service-role logic. PostgreSQL `pg_cron` and `pg_net` configure the schedule when available; deployments that cannot enable those extensions configure the same schedule in the Supabase Dashboard. The worker records its last run in `service_heartbeats` under `ai_worker`, which the settings page reports as healthy (≤5 minutes), stale, or never seen.
 
 Each Vercel worker invocation claims at most three jobs with a 120-second lease and processes them concurrently. OpenAI and Google AI Studio image calls complete synchronously within one worker invocation.
 

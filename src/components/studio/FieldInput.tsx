@@ -24,7 +24,7 @@ export default function FieldInput({ field, inputId = field.key, value, onChange
       <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-2 py-1.5">
         {tags.map((tag) => <span key={tag} className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-xs">
           {tag}
-          <button type="button" aria-label={`Remove ${tag}`} className="text-[#98a2b3] hover:text-white" onClick={() => onChange(tags.filter((item) => item !== tag))}>×</button>
+          <button type="button" aria-label={`Remove ${tag}`} className="-m-2.5 inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-[var(--muted)] hover:text-[var(--text)]" onClick={() => onChange(tags.filter((item) => item !== tag))}>×</button>
         </span>)}
         <input
           id={`tag-${inputId}`}

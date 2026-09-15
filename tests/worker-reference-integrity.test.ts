@@ -16,6 +16,10 @@ const mockRemoveOwnedObjects = vi.fn<(...args: unknown[]) => Promise<undefined>>
 vi.mock("@/lib/ai/providers", () => ({ get providerForJob() { return mockProviderForJob; } }));
 vi.mock("@/lib/ai/credentials", () => ({ get getProviderApiKey() { return mockGetProviderApiKey; } }));
 vi.mock("@/lib/assets/service", () => ({ prepareImageBytes: vi.fn(async () => ({ bytes: new Uint8Array([1]), mimeType: "image/png", extension: "png", width: 4, height: 4 })) }));
+// The compositor needs real decodable images; naming is what this file checks.
+vi.mock("@/lib/assets/inpaint-composite", () => ({
+  compositeInpaintResult: vi.fn(async (_source: Uint8Array, generated: Uint8Array) => generated),
+}));
 vi.mock("@/lib/assets/ownership", () => ({
   getOwnedAssetVersion: (...args: unknown[]) => mockGetOwnedAssetVersion(...args),
   getOwnedStyleReference: (...args: unknown[]) => mockGetOwnedStyleReference(...args),
@@ -36,7 +40,8 @@ function supabaseClient() {
       chain.eq = vi.fn(() => chain);
       chain.in = vi.fn(() => chain);
       chain.delete = vi.fn(() => chain);
-      chain.single = vi.fn(async () => ({ data: { asset_id: "55555555-5555-4555-8555-555555555555" }, error: null }));
+      chain.single = vi.fn(async () => ({ data: { asset_id: "55555555-5555-4555-8555-555555555555", name: "Smoke Test Style" }, error: null }));
+      chain.maybeSingle = vi.fn(async () => ({ data: { name: "Smoke Test Style" }, error: null }));
       chain.then = (onFulfilled: (value: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(onFulfilled);
       return chain;
     }),
@@ -93,6 +98,17 @@ beforeEach(() => {
 });
 
 describe("worker reference integrity", () => {
+  it("names an edit after its style instead of pasting the prompt", async () => {
+    const { processAiJob } = await import("@/lib/ai/worker");
+    const digest = createHash("sha256").update(new Uint8Array([9, 9, 9])).digest("hex");
+    mockSubmit.mockResolvedValue({ state: "completed", images: [{ kind: "bytes", bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" }], requestId: "req-1", metadata: {} });
+    await processAiJob(supabaseClient(), makeInpaintJob(digest), WORKER_ID);
+    const completed = mockRpc.mock.calls.find((call) => call[0] === "complete_ai_job_with_results");
+    const results = completed?.[1]?.p_results as Array<{ name: string }> | undefined;
+    expect(results?.[0]?.name.startsWith("Edit · ")).toBe(true);
+    expect(results?.[0]?.name).not.toContain("swap the cup");
+  });
+
   it("fails the job cleanly instead of crashing the worker", async () => {
     const { processAiJob } = await import("@/lib/ai/worker");
     const result = await processAiJob(supabaseClient(), makeInpaintJob("f".repeat(64)), WORKER_ID);

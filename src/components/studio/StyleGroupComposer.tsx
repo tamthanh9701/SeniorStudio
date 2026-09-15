@@ -209,7 +209,7 @@ export default function StyleGroupComposer({
         </div>
 
         <details className="studio-card p-4" open={advancedOpen} onToggle={(event) => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
-          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium"><ChevronDown className="size-4" aria-hidden /> Advanced</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium"><ChevronDown className="size-4" aria-hidden /> Advanced</summary>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="studio-label" htmlFor="style-generation-model">Model</label>

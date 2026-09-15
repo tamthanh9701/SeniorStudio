@@ -9,7 +9,7 @@ vi.mock("../src/supabase/server", () => ({
   getServiceClient: vi.fn(() => serviceClient),
 }));
 
-import { analyzeStyleProfile, compileStyledPrompt } from "../src/lib/style/service";
+import { analyzeStyleProfile } from "../src/lib/style/service";
 import { StyleError } from "../src/lib/style/errors";
 
 // Chainable Supabase builder: every verb returns the builder, terminal
@@ -132,38 +132,5 @@ describe("analyzeStyleProfile", () => {
     stubTables({ style: { id: "style-1", name: "S", status: "draft", schema: null, analysis_meta: {} }, refs: [REF_ROW] });
     vi.stubGlobal("fetch", vi.fn(async () => new Response("denied", { status: 401 })));
     await expect(analyzeStyleProfile({ styleId: "style-1", client: client as never })).rejects.toBeInstanceOf(StyleError);
-  });
-});
-
-describe("compileStyledPrompt", () => {
-  function stubStyleRow(row: Record<string, unknown> | null) {
-    (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
-      if (table === "styles") return builder({ data: row, error: null });
-      return builder({ data: null, error: null });
-    });
-  }
-
-  it("appends the subject to the capsule for an active style", async () => {
-    stubStyleRow({ id: "style-1", status: "active", schema: { style_name: "Capsule", artistic_style: { medium: "ink" } } });
-    const compiled = await compileStyledPrompt({ styleId: "style-1", originalPrompt: "a red teapot", client: client as never });
-    expect(compiled).toContain("Style capsule: Capsule");
-    expect(compiled.endsWith("Subject: a red teapot")).toBe(true);
-  });
-
-  it("rejects draft styles with STYLE_NOT_ACTIVE", async () => {
-    stubStyleRow({ id: "style-1", status: "draft", schema: {} });
-    await expect(compileStyledPrompt({ styleId: "style-1", originalPrompt: "x", client: client as never })).rejects.toMatchObject({ code: "STYLE_NOT_ACTIVE" });
-  });
-
-  it("throws STYLE_NOT_FOUND when the style is invisible", async () => {
-    stubStyleRow(null);
-    await expect(compileStyledPrompt({ styleId: "x", originalPrompt: "x", client: client as never })).rejects.toMatchObject({ code: "STYLE_NOT_FOUND" });
-  });
-
-  it("caps the compiled prompt at 8000 characters", async () => {
-    stubStyleRow({ id: "style-1", status: "active", schema: { style_name: "S", artistic_style: { rendering_style: "y".repeat(2000) } } });
-    const compiled = await compileStyledPrompt({ styleId: "style-1", originalPrompt: "z".repeat(9000), client: client as never });
-    expect(compiled.length).toBeLessThanOrEqual(8000);
-    expect(compiled).toContain("Subject: ");
   });
 });

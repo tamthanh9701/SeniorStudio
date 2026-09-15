@@ -6,6 +6,7 @@ import ProjectSidebar from "@/components/studio/ProjectSidebar";
 import StudioShell from "@/components/studio/StudioShell";
 import ThemeSelect from "@/components/theme/ThemeSelect";
 import { createClient } from "@/supabase/client";
+import { formatDateTime } from "@/lib/format/datetime";
 
 const STALE_THRESHOLD_MS = 5 * 60_000;
 
@@ -53,9 +54,18 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
 
   const heartbeatAge = heartbeat ? now - Date.parse(heartbeat) : null;
   const heartbeatState = heartbeatAge === null || !Number.isFinite(heartbeatAge) ? "unknown" : heartbeatAge <= STALE_THRESHOLD_MS ? "healthy" : "stale";
-  const heartbeatLabel = heartbeatState === "healthy" ? "Worker healthy" : heartbeatState === "stale" ? "Worker stale" : "Worker status unknown";
+  const heartbeatLabel = heartbeatState === "healthy" ? "Worker healthy" : heartbeatState === "stale" ? "Worker stale" : "No worker heartbeat yet";
+  // A failed poll is a different problem from a worker that has never run, and
+  // the operator needs to be able to tell them apart.
+  const heartbeatDetail = fetchError
+    ? `${fetchError}. The worker may still be running; the status could not be read.`
+    : heartbeatState === "unknown"
+      ? "No heartbeat has been recorded. Check that the scheduled worker invocation is enabled."
+      : heartbeatState === "healthy"
+        ? "The scheduled worker is running and claiming jobs."
+        : "No heartbeat in the last 5 minutes. New jobs will stay queued until the worker runs again.";
   const signOut = async () => { await createClient().auth.signOut(); window.location.assign("/login"); };
   const sidebar = <ProjectSidebar activeModule="playground" userEmail={userEmail} />;
-  const center = <div className="h-full overflow-y-auto pb-24 xl:pb-0"><div className="mx-auto max-w-6xl space-y-6 px-5 py-8 sm:px-8 sm:py-10"><div><p className="text-sm font-medium text-[var(--accent)]">Account</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Settings</h1><p className="mt-2 text-sm text-[var(--muted)]">Manage appearance, providers and your active session.</p></div><ThemeSelect /><div className="studio-card"><ProviderSettings /></div><div className="studio-card divide-y divide-[var(--border)]"><div className="flex items-center gap-4 p-5"><span className={`flex size-10 items-center justify-center rounded-xl ${heartbeatState === "healthy" ? "bg-[color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)]" : heartbeatState === "stale" ? "bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] text-[var(--warning)]" : "bg-[var(--surface-hover)] text-[var(--muted)]"}`}><Activity className="size-5" /></span><div><p className="font-medium">{heartbeatLabel}</p><p className="mt-1 text-xs text-[var(--muted)]">{heartbeat ? `Last seen ${new Date(heartbeat).toLocaleString()}` : "No heartbeat recorded yet"}{fetchError && <span className="ml-2 text-[var(--danger)]">{fetchError} <button type="button" onClick={() => void refresh()} className="underline">Retry</button></span>}</p></div></div><div className="flex items-center gap-4 p-5"><span className="flex size-10 items-center justify-center rounded-xl bg-[var(--surface-hover)] text-[var(--muted)]"><Mail className="size-5" /></span><div><p className="font-medium">Signed in as</p><p className="mt-1 text-sm text-[var(--muted)]">{userEmail}</p></div></div><div className="flex items-center gap-4 p-5"><button onClick={signOut} className="studio-button-secondary"><LogOut className="size-4" /> Sign out</button></div></div></div></div>;
+  const center = <div className="h-full overflow-y-auto pb-24 xl:pb-0"><div className="mx-auto max-w-6xl space-y-6 px-5 py-8 sm:px-8 sm:py-10"><div><p className="text-sm font-medium text-[var(--accent)]">Account</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Settings</h1><p className="mt-2 text-sm text-[var(--muted)]">Manage appearance, providers and your active session.</p></div><ThemeSelect /><div className="studio-card"><ProviderSettings /></div><div className="studio-card divide-y divide-[var(--border)]"><div className="flex items-center gap-4 p-5"><span className={`flex size-10 items-center justify-center rounded-xl ${heartbeatState === "healthy" ? "bg-[color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)]" : heartbeatState === "stale" ? "bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] text-[var(--warning)]" : "bg-[var(--surface-hover)] text-[var(--muted)]"}`}><Activity className="size-5" /></span><div><p className="font-medium">{heartbeatLabel}</p><p className="mt-1 text-xs text-[var(--muted)]">{heartbeatDetail}</p><p className="mt-1 text-xs text-[var(--muted)]">{heartbeat ? `Last seen ${formatDateTime(heartbeat)}` : "No heartbeat recorded yet"}{fetchError && <span className="ml-2 text-[var(--danger)]">{fetchError} <button type="button" onClick={() => void refresh()} className="underline">Retry</button></span>}</p></div></div><div className="flex items-center gap-4 p-5"><span className="flex size-10 items-center justify-center rounded-xl bg-[var(--surface-hover)] text-[var(--muted)]"><Mail className="size-5" /></span><div><p className="font-medium">Signed in as</p><p className="mt-1 text-sm text-[var(--muted)]">{userEmail}</p></div></div><div className="flex items-center gap-4 p-5"><button onClick={signOut} className="studio-button-secondary"><LogOut className="size-4" /> Sign out</button></div></div></div></div>;
   return <StudioShell projects={projects} userEmail={userEmail} leftSidebar={sidebar} center={center} />;
 }

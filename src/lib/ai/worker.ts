@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiJobSchema, type AiJob } from "@/db/ai-jobs";
 import { prepareImageBytes } from "@/lib/assets/service";
 import { compositeInpaintResult } from "@/lib/assets/inpaint-composite";
+import { formatDateTime } from "@/lib/format/datetime";
 import { providerForJob } from "@/lib/ai/providers";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types";
@@ -106,6 +107,34 @@ export async function withLeaseHeartbeat<T>(
   }
 }
 
+
+/**
+ * Display name for a produced image.
+ *
+ * Prompts make unusable names (long, repeated, sometimes in another language),
+ * so a name states what the image is and where it came from.  The prompt stays
+ * on the version row, which is where it is actually meaningful.
+ */
+function assetNameFor(job: AiJob, ownerName: string | null, at: string | Date): string {
+  // An edit is stored as a version of an existing image, so naming it "Image"
+  // would misdescribe it in the version history.
+  const label = job.operation === "inpaint" ? "Edit" : "Image";
+  const moment = formatDateTime(at) ?? "";
+  return [label, ownerName, moment].filter((part): part is string => Boolean(part && part.trim())).join(" · ");
+}
+
+async function ownerNameFor(client: SupabaseClient, job: AiJob): Promise<string | null> {
+  if (job.module === "style" && job.style_id) {
+    const { data } = await client.from("styles").select("name").eq("id", job.style_id).maybeSingle();
+    return data?.name ?? null;
+  }
+  if (job.project_id) {
+    const { data } = await client.from("projects").select("name").eq("id", job.project_id).maybeSingle();
+    return data?.name ?? null;
+  }
+  return null;
+}
+
 async function persistJobImages(
   client: SupabaseClient,
   job: AiJob,
@@ -114,6 +143,7 @@ async function persistJobImages(
   providerStatus: string,
   prepared: PreparedInputs,
 ) {
+  const ownerName = await ownerNameFor(client, job);
   const { error: stateError } = await client.rpc("set_ai_job_persisting", { p_job_id: job.id, p_worker_id: workerId });
   if (stateError) throw stateError;
   const results: Array<Record<string, unknown>> = [];
@@ -146,7 +176,7 @@ async function persistJobImages(
       const { error: uploadError } = await client.storage.from(STORAGE_BUCKET).upload(storagePath, decoded.bytes, { contentType: decoded.mimeType, upsert: false });
       if (uploadError) throw uploadError;
       uploadedPaths.push(storagePath);
-      results.push({ asset_id: assetId, version_id: versionId, storage_path: storagePath, mime_type: decoded.mimeType, width: decoded.width, height: decoded.height, byte_size: decoded.bytes.byteLength, name: (job.input.original_prompt ?? job.input.prompt).trim().slice(0, 80) || "Untitled", prompt: job.input.prompt, provider_response_id: submission.requestId, metadata: { provider: job.provider, model: job.model, operation: job.operation, ...submission.metadata } });
+      results.push({ asset_id: assetId, version_id: versionId, storage_path: storagePath, mime_type: decoded.mimeType, width: decoded.width, height: decoded.height, byte_size: decoded.bytes.byteLength, name: assetNameFor(job, ownerName, new Date()), prompt: job.input.prompt, provider_response_id: submission.requestId, metadata: { provider: job.provider, model: job.model, operation: job.operation, ...submission.metadata } });
     }
     const { error } = await client.rpc("complete_ai_job_with_results", { p_job_id: job.id, p_worker_id: workerId, p_provider_request_id: submission.requestId, p_provider_status: providerStatus, p_results: results, p_output: { provider: job.provider, model: job.model, provider_request_id: submission.requestId, operation: job.operation, results, ...submission.metadata } });
     if (error) {

@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 import { AiJobSchema, TextToImageEnqueueSchema, providerForModel, type ProjectJobFeedItem } from "@/db/ai-jobs";
-import { compileStyledPrompt } from "@/lib/style/service";
-import { styleProfilesEnabled } from "@/lib/style/flag";
 import { assertModelSupports } from "@/lib/ai/models";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getEnv } from "@/env";
@@ -46,18 +44,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     const model = await assertModelSupports(parsed.data.model, "text_to_image", supabase, workspaceId);
     if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient(), workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
     if (!model.sizes.includes(parsed.data.size as never) || !model.qualities.includes(parsed.data.quality as never)) throw new Error("INVALID_MODEL");
-    let prompt = parsed.data.prompt;
-    let styleId: string | null = null;
-    if (parsed.data.styleId) {
-      if (!styleProfilesEnabled()) throw new Error("INVALID_REQUEST");
-      styleId = parsed.data.styleId;
-      prompt = await compileStyledPrompt({ styleId: parsed.data.styleId, originalPrompt: parsed.data.prompt, client: supabase, costMode: parsed.data.costMode });
-    }
+    // Project generation never applies a style: a style is applied only in the
+    // Style module, where the confirmed definition and its reference images are
+    // enforced.  Accepting a style here would produce images that bypass both.
     const { data: job, error } = await supabase.rpc("enqueue_text_to_image_job_v2", {
       p_workspace_id: workspaceId, p_project_id: projectId, p_requested_by: user.id,
       p_provider: providerForModel(parsed.data.model), p_model: parsed.data.model,
-      p_prompt: prompt, p_count: parsed.data.count, p_size: parsed.data.size, p_quality: parsed.data.quality,
-      p_style_id: styleId, p_original_prompt: styleId ? parsed.data.prompt : null,
+      p_prompt: parsed.data.prompt, p_count: parsed.data.count, p_size: parsed.data.size, p_quality: parsed.data.quality,
+      p_style_id: null, p_original_prompt: null,
       p_module: "projects", p_cost_mode: parsed.data.costMode,
       p_requested_model_id: parsed.data.model, p_reference_ids: [], p_temperature: null,
     });

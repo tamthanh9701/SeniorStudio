@@ -1,5 +1,7 @@
-// Style profile service: analyze (vision provider → schema/fingerprint/contract)
-// and compileStyledPrompt (capsule + subject) used at generation enqueue time.
+// Style profile service: analyze (vision provider → schema/fingerprint/contract).
+// Generation compiles prompts from the confirmed definition in
+// generation-plan.ts; nothing here builds a provider prompt from the mutable
+// candidate schema.
 import { getServiceClient, createClient } from "@/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { STORAGE_BUCKET } from "@/db/schema";
@@ -170,28 +172,5 @@ export async function analyzeStyleProfile(params: {
   return updated as unknown as StyleRow;
 }
 
-export async function compileStyledPrompt(params: {
-  styleId: string;
-  originalPrompt: string;
-  client: SupabaseClient;
-  costMode?: CostMode;
-  referenceSummary?: ReferencePreprocessSummary | null;
-}): Promise<string> {
-  const { styleId, originalPrompt, client, costMode = "strict_1000" } = params;
-  const { data: style, error } = await client.from("styles").select("status, schema, fingerprint").eq("id", styleId).maybeSingle();
-  if (error || !style) throw new StyleError("STYLE_NOT_FOUND", "Style not found");
-  if (style.status !== "active") throw new StyleError("STYLE_NOT_ACTIVE", "Style must be activated before use in generation");
-
-  const budget = getStyleBudget(costMode);
-  const styleSource = style.fingerprint
-    ? styleFingerprintToPrompt(style.fingerprint as StyleFingerprint)
-    : buildStyleGenerationPrompt(style.schema as PromptSchema, budget);
-  const capsule = styleSource.length > budget ? styleSource.slice(0, budget).trimEnd() : styleSource;
-  const overhead = capsule.length + "\n\nSubject: ".length;
-  const subject = overhead + originalPrompt.length > 8000
-    ? originalPrompt.slice(0, Math.max(0, 8000 - overhead))
-    : originalPrompt;
-  return `${capsule}\n\nSubject: ${subject}`;
-}
 
 export { createClient, getServiceClient };

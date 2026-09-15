@@ -3,7 +3,8 @@
 import { NextResponse } from "next/server";
 import { lintAndFixStyleSchema } from "@/lib/style/linter";
 import { buildStyleInvariantContract, critiqueStyleSchema } from "@/lib/style/invariant-contract";
-import { commitStyleSchemaMutation, updateStyleFields, getSchemaVersions } from "@/lib/style/schema-versions";
+import { commitStyleSchemaMutation, updateStyleFields } from "@/lib/style/schema-versions";
+import { getStyleDetail } from "@/lib/style/style-assets";
 import type { PromptSchema } from "@/lib/style/prompt-schema";
 import { scoreStyleOperability } from "@/lib/style/operability-scorer";
 import { z } from "zod";
@@ -24,21 +25,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sty
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
-  const { data: style } = await supabase.from("styles").select("*").eq("id", styleId).maybeSingle();
+  const style = await getStyleDetail(supabase, styleId);
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
-  const { data: references } = await supabase
-    .from("style_references")
-    .select("id, storage_path, mime_type, byte_size, width, height, content_hash, created_at")
-    .eq("style_id", styleId)
-    .is("retired_at", null)
-    .order("created_at");
-  const referencesWithUrls = await Promise.all((references ?? []).map(async (reference) => {
-    const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(reference.storage_path, 600);
-    const { storage_path: _storagePath, ...metadata } = reference;
-    return { ...metadata, signed_url: data?.signedUrl ?? null };
-  }));
-  const schemaVersions = await getSchemaVersions(supabase, styleId);
-  return NextResponse.json({ style: { ...style, references: referencesWithUrls, schemaVersions } });
+  return NextResponse.json({ style });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ styleId: string }> }) {

@@ -19,6 +19,12 @@
   --danger: #ef6262;
   --control-radius: 10px;
   --card-radius: 14px;
+  /* Fixed dark surfaces (image canvas, comparison view) keep dark ink in every theme. */
+  --stage: #0e1116;
+  --stage-raised: #1a1f27;
+  --stage-border: rgba(255, 255, 255, 0.1);
+  --stage-text: #f5f7fa;
+  --stage-muted: #b3bdcc;
 }
 
 html[data-theme="light"] {
@@ -35,6 +41,11 @@ html[data-theme="light"] {
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-subtle: #eff6ff;
+  /* The dark-theme status colours are tuned for dark surfaces and fall below
+     4.5:1 on white, so the light theme carries its own darker set. */
+  --success: #0f6b49;
+  --warning: #8a5a00;
+  --danger: #b02525;
 }
 
 * { box-sizing: border-box; }
@@ -80,7 +91,8 @@ button:disabled { cursor: not-allowed; }
 }
 
 .checker-stage {
-  background-color: #0e1116;
+  color: var(--stage-text);
+  background-color: var(--stage);
   background-image: linear-gradient(45deg, rgba(255,255,255,.025) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,.025) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,.025) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,.025) 75%);
   background-size: 28px 28px;
   background-position: 0 0, 0 14px, 14px -14px, -14px 0;

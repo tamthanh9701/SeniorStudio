@@ -25,6 +25,7 @@ const mockSelect = vi.fn();
 const mockEq = vi.fn();
 const mockIn = vi.fn();
 const mockSingle = vi.fn();
+const mockMaybeSingle = vi.fn();
 const mockDelete = vi.fn();
 
 function supabaseClient() {
@@ -80,10 +81,13 @@ beforeEach(() => {
   mockRpc.mockResolvedValue({ data: null, error: null });
   mockUpload.mockResolvedValue({ error: null });
   mockRemove.mockResolvedValue({ error: null });
-  mockSelect.mockReturnValue({ select: mockSelect, eq: mockEq, in: mockIn, single: mockSingle });
-  mockEq.mockReturnValue({ select: mockSelect, eq: mockEq, in: mockIn, single: mockSingle });
-  mockIn.mockReturnValue({ select: mockSelect, eq: mockEq, in: mockIn, single: mockSingle });
+  const chain = { select: mockSelect, eq: mockEq, in: mockIn, single: mockSingle, maybeSingle: mockMaybeSingle };
+  mockSelect.mockReturnValue(chain);
+  mockEq.mockReturnValue(chain);
+  mockIn.mockReturnValue(chain);
   mockSingle.mockResolvedValue({ data: null, error: null });
+  // The worker reads the owning style or project name to label its results.
+  mockMaybeSingle.mockResolvedValue({ data: { name: "Fixture owner" }, error: null });
 });
 
 describe("processAiJob", () => {
