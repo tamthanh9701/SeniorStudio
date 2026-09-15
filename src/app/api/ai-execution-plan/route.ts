@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
+import { StyleError } from "@/lib/style/errors";
 import { resolveUserWorkspaceId } from "@/lib/ai/models";
 import { resolveImageExecutionPlan } from "@/lib/ai/execution-plan";
 import { AiOperationSchema } from "@/db/ai-jobs";
@@ -55,6 +56,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ plan });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to resolve execution plan";
+    // Style-domain failures carry their own code; the caller needs it (for
+    // example to offer explicit adoption of the confirmed style) and the
+    // message is prose, so a code is never recoverable from it.
+    if (error instanceof StyleError) {
+      return NextResponse.json({ error: { code: error.code, message } }, { status: error.status });
+    }
     const code = [
       "PROMPT_REQUIRED", "REFERENCE_NOT_FOUND", "REFERENCE_LIMIT_EXCEEDED", "STYLE_NOT_READY",
       "STYLE_NOT_ACTIVE", "STYLE_NOT_FOUND", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED",
