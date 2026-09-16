@@ -55,17 +55,18 @@ describe("module sidebar", () => {
     expect(currentIndex).toBeLessThan(styleIndex);
   });
 
-  it("routes recent prompts by job scope: project jobs to the project, style jobs to /style", () => {
+  it("routes a prompt to the image it produced, falling back to where it ran", () => {
     const html = renderToStaticMarkup(
       <RecentPrompts
         items={[
-          { job: job(), result_urls: [] },
+          { job: job({ asset_id: "66666666-6666-4666-8666-666666666666", status: "succeeded" }), result_urls: [] },
           { job: job({ id: "aaaaaaa1-1111-4111-8111-111111111111", project_id: null, module: "style", input: { prompt: "restyle", count: 1, size: "1024x1024", quality: "auto", style_id: "55555555-5555-4555-8555-555555555555" } }), result_urls: [] },
         ]}
       />,
     );
-    expect(html).toContain('href="/projects/33333333-3333-4333-8333-333333333333"');
-    expect(html).toContain('href="/style"');
+    // A finished project job opens its image; a style job opens its style.
+    expect(html).toContain('href="/projects/33333333-3333-4333-8333-333333333333/assets/66666666-6666-4666-8666-666666666666"');
+    expect(html).toContain('href="/style/55555555-5555-4555-8555-555555555555"');
     expect(html).toContain("portrait study");
     expect(html).toContain("restyle");
   });
@@ -76,7 +77,6 @@ describe("style workspace sidebar", () => {
     const html = renderToStaticMarkup(
       <ModuleContextSidebar
         currentModule="style"
-        recentJobs={[]}
         userEmail="user@example.com"
         libraryTabs={[
           { id: "550e8400-e29b-41d4-a716-446655440000", name: "Brand Kit" },
@@ -90,7 +90,7 @@ describe("style workspace sidebar", () => {
   });
 
   it("omits the libraries section when no libraries exist", () => {
-    const html = renderToStaticMarkup(<ModuleContextSidebar currentModule="style" recentJobs={[]} userEmail="user@example.com" />);
+    const html = renderToStaticMarkup(<ModuleContextSidebar currentModule="style" userEmail="user@example.com" />);
     expect(html).not.toContain("Libraries");
   });
 });

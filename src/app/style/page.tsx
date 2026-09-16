@@ -4,8 +4,6 @@ import { redirect } from "next/navigation";
 import ModuleContextSidebar from "@/components/studio/ModuleContextSidebar";
 import StylePanel from "@/components/studio/StylePanel";
 import StudioShell from "@/components/studio/StudioShell";
-import { AiJobSchema, type ProjectJobFeedItem } from "@/db/ai-jobs";
-import { getJobResultUrls } from "@/lib/ai/job-results";
 import { createClient } from "@/supabase/server";
 
 export default async function StylePage() {
@@ -13,15 +11,13 @@ export default async function StylePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: projects }, { data: jobs }, { data: libraries }, { data: styles }] = await Promise.all([
+  // The sidebar answers "which style do I continue?"; a job feed here would be
+  // fetched, url-signed and then never shown.
+  const [{ data: projects }, { data: libraries }, { data: styles }] = await Promise.all([
     supabase.from("projects").select("id, name").order("created_at", { ascending: false }),
-    supabase.from("ai_jobs").select("*").eq("module", "style").not("input->>style_id", "is", null).order("created_at", { ascending: false }).limit(50),
     supabase.from("style_libraries").select("id, name").order("sort_order").order("name"),
     supabase.from("styles").select("id, name, updated_at, assets(count)").order("updated_at", { ascending: false }).limit(6),
   ]);
-
-  const parsedJobs = (jobs ?? []).map((job) => AiJobSchema.safeParse(job)).filter((result) => result.success).map((result) => result.data).reverse();
-  const initialJobs: ProjectJobFeedItem[] = await Promise.all(parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })));
   const libraryList = (libraries ?? []).map((library) => ({ id: library.id as string, name: library.name as string }));
   const recentStyles = (styles ?? []).map((style) => ({
     id: style.id as string,

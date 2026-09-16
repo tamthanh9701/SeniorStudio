@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Images, Settings2, Sparkles, SwatchBook, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState, type ReactNode } from "react";
-import type { ProjectJobFeedItem } from "@/db/ai-jobs";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -14,7 +13,6 @@ export type StudioShellProps = {
   projects: Array<{ id: string; name: string }>;
   activeProjectId?: string;
   userEmail: string;
-  recentJobs?: ProjectJobFeedItem[];
   leftSidebar: ReactNode;
   center: ReactNode;
   inspector?: ReactNode;

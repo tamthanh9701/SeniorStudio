@@ -34,7 +34,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/format/datetime";
-import type { AiJob, ProjectJobFeedItem } from "@/db/ai-jobs";
+import { isTerminalStatus, type AiJob, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { useModuleJobs } from "@/lib/ai/use-module-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import type { StyleClarificationQuestionSet } from "@/lib/style/clarification-questions";
 import {
@@ -227,6 +228,11 @@ export default function StyleWorkspace({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [rawJsonOpen, setRawJsonOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+  // The feed is live: the worker updates rows while the user watches, and the
+  // server-rendered jobs only seed it.
+  const { items: jobs, addJob } = useModuleJobs({ module: "style", styleId }, initialJobs);
+  const activeJobIds = useMemo(() => jobs.filter(({ job }) => !isTerminalStatus(job.status)).map(({ job }) => job.id), [jobs]);
+  const previousActiveJobIds = useRef(activeJobIds);
 
   const load = useCallback(async () => {
     const [detailResponse, galleryResponse] = await Promise.all([
@@ -259,6 +265,12 @@ export default function StyleWorkspace({
       setLoading(false);
     }
   }, [load]);
+
+  useEffect(() => {
+    const wasRunning = previousActiveJobIds.current.length > 0;
+    previousActiveJobIds.current = activeJobIds;
+    if (wasRunning && activeJobIds.length === 0) void refresh({ silent: true });
+  }, [activeJobIds, refresh]);
 
   useEffect(() => {
     // Server-rendered styles load nothing on mount; callers reload explicitly
@@ -299,15 +311,15 @@ export default function StyleWorkspace({
     }));
   }, [confirmed.definition, references]);
   const latestJob: AiJob | null = useMemo(
-    () => initialJobs.reduce<AiJob | null>(
+    () => jobs.reduce<AiJob | null>(
       (latest, item) => (!latest || Date.parse(item.job.created_at) > Date.parse(latest.created_at) ? item.job : latest),
       null,
     ),
-    [initialJobs],
+    [jobs],
   );
   const sourceVersion = useMemo(() => {
     if (!sourceVersionId) return null;
-    const item = initialJobs.find(({ job }) => job.version_id === sourceVersionId);
+    const item = jobs.find(({ job }) => job.version_id === sourceVersionId);
     const fromJob = item
       ? { id: item.job.version_id as string, prompt: item.job.input.original_prompt ?? item.job.input.prompt ?? null, metadata: (item.job.style_generation ?? {}) as Record<string, unknown> }
       : null;
@@ -318,15 +330,15 @@ export default function StyleWorkspace({
       ...initialSourceVersion,
       prompt: initialSourceVersion.prompt ?? fromJob?.prompt ?? null,
     };
-  }, [initialJobs, initialSourceVersion, sourceVersionId]);
+  }, [jobs, initialSourceVersion, sourceVersionId]);
   const showComposer = composerOpen || (detail !== null && gallery.length === 0 && ready);
   // Status the gallery and the activity panel share: a job that is still running
   // or that failed since the last successful image.
-  const runningJobs = initialJobs.filter(({ job }) => !["succeeded", "failed", "canceled"].includes(job.status)).length;
-  const latestFailure = initialJobs.find(({ job }) => job.status === "failed") ?? null;
+  const runningJobs = activeJobIds.length;
+  const latestFailure = jobs.find(({ job }) => job.status === "failed") ?? null;
   const runningAssetIds = new Set(
-    initialJobs
-      .filter(({ job }) => !["succeeded", "failed", "canceled"].includes(job.status))
+    jobs
+      .filter(({ job }) => !isTerminalStatus(job.status))
       .map(({ job }) => job.asset_id)
       .filter((id): id is string => Boolean(id)),
   );
@@ -1114,7 +1126,7 @@ export default function StyleWorkspace({
         </Card>
       )}
 
-      {initialJobs.length > 0 && (
+      {jobs.length > 0 && (
         <Collapsible open={activityOpen} onOpenChange={setActivityOpen} className="rounded-lg border border-border">
           <CollapsibleTrigger asChild>
             <Button variant="ghost" className="w-full justify-between px-4">
@@ -1128,7 +1140,7 @@ export default function StyleWorkspace({
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="border-t border-border">
-            <JobTimeline items={initialJobs} onRetry={retryJob} onCancel={(job) => void cancelJob(job)} onSelectResult={() => undefined} />
+            <JobTimeline items={jobs} onRetry={retryJob} onCancel={(job) => void cancelJob(job)} onSelectResult={({ assetId }) => { if (assetId) router.push(`/style/${styleId}/assets/${assetId}`); }} />
           </CollapsibleContent>
         </Collapsible>
       )}
@@ -1196,7 +1208,7 @@ export default function StyleWorkspace({
             initialJob={latestJob}
             initialPrompt={retryPrompt}
             sourceLabel={sourceVersion ? sourceAssetName : null}
-            onSubmitted={() => { void refresh({ silent: true }); }}
+            onSubmitted={(job) => { addJob(job); setActivityOpen(true); }}
           />
         </div>
       )}

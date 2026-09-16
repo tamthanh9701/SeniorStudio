@@ -42,15 +42,29 @@ export function ModuleLinks({ active, className }: { active: ModuleId; className
   );
 }
 
+/** Where a feed entry leads: the image it produced, else the surface it ran in. */
+function hrefForJob(job: ProjectJobFeedItem["job"]) {
+  if (job.asset_id && job.project_id) return `/projects/${job.project_id}/assets/${job.asset_id}`;
+  if (job.project_id) return `/projects/${job.project_id}`;
+  if (job.input.style_id) return `/style/${job.input.style_id}`;
+  return "/style";
+}
+
 export function RecentPrompts({ items, className }: { items: ProjectJobFeedItem[]; className?: string }) {
   return (
     <div className={className}>
       <div className="space-y-1">
-        {items.slice(-12).reverse().map(({ job }) => (
-          <Button key={job.id} asChild variant="ghost" className="h-auto w-full flex-col items-stretch gap-0.5 rounded-xl px-3 py-2.5 font-normal">
-            <Link href={job.project_id ? `/projects/${job.project_id}` : "/style"}>
-              <span className="w-full truncate text-sm text-foreground">{job.input.original_prompt ?? job.input.prompt}</span>
-              <span className="mt-1 w-full text-[11px] text-muted-foreground">{JOB_STATUS_LABELS[job.status]}</span>
+        {items.slice(-12).reverse().map(({ job, result_urls }) => (
+          <Button key={job.id} asChild variant="ghost" className="h-auto w-full items-start gap-2.5 rounded-xl px-3 py-2.5 font-normal">
+            {/* A prompt is best recognised by what it produced. */}
+            <Link href={hrefForJob(job)} className="flex w-full items-start gap-2.5">
+              <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accent">
+                {result_urls[0] ? <img src={result_urls[0]} alt="" className="size-9 object-cover" /> : <ImageIcon className="size-4 text-muted-foreground" aria-hidden />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block w-full truncate text-sm text-foreground">{job.input.original_prompt ?? job.input.prompt}</span>
+                <span className="mt-0.5 block w-full text-[11px] text-muted-foreground">{JOB_STATUS_LABELS[job.status]}</span>
+              </span>
             </Link>
           </Button>
         ))}
@@ -86,9 +100,8 @@ export function SectionLabel({ children, className = "" }: { children: ReactNode
   return <p className={cn("px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground", className)}>{children}</p>;
 }
 
-export default function ModuleContextSidebar({ currentModule, recentJobs = [], userEmail, contextLabel, libraryTabs = [], recentStyles = [] }: {
+export default function ModuleContextSidebar({ currentModule, userEmail, contextLabel, libraryTabs = [], recentStyles = [] }: {
   currentModule: ModuleId;
-  recentJobs?: ProjectJobFeedItem[];
   userEmail: string;
   contextLabel?: string | null;
   libraryTabs?: Array<{ id: string; name: string }>;
@@ -130,12 +143,6 @@ export default function ModuleContextSidebar({ currentModule, recentJobs = [], u
                 </Button>
               ))}
             </div>
-          </>
-        )}
-        {currentModule !== "style" && recentJobs.length > 0 && (
-          <>
-            <SectionLabel className="mt-6">Recent prompts</SectionLabel>
-            <RecentPrompts items={recentJobs} className="mt-2" />
           </>
         )}
       </div>

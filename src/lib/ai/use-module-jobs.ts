@@ -86,9 +86,11 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
     setItems(reconcileJobFeed([], initialItems));
   }, [scopeKey]);
 
-  const refresh = useCallback(async (): Promise<boolean> => {
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}): Promise<boolean> => {
     const sequence = ++refreshSequence.current;
-    setSyncState("syncing");
+    // The poll is invisible: a fetch that succeeds a moment later would flash the
+    // "Syncing job status…" notice on every tick.
+    if (!quiet) setSyncState("syncing");
     try {
       const response = await fetch(endpointFor(scope), { cache: "no-store" });
       if (!response.ok || sequence !== refreshSequence.current) { setSyncState("offline"); return false; }
@@ -111,14 +113,13 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
   useEffect(() => {
     if (!hasActiveJobs && !hasUnhydratedJobs) return;
     const supabase = createClient();
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-    let subscribed = false;
-    let closed = false;
-    const startPolling = () => {
-      if (closed || subscribed || pollTimer) return;
-      void refresh();
-      pollTimer = setInterval(refresh, 2000);
-    };
+    // A change reaches a subscriber only when its role may read the row.  This client is
+    // cookie-authenticated, so its Realtime socket carries the anon key alone and the
+    // workspace policy hides every ai_jobs row: the channel still reports SUBSCRIBED and
+    // no event ever arrives.  Polling is therefore the delivery mechanism and the channel
+    // only accelerates it, instead of the poll being a fallback for a dead socket.
+    void refresh({ quiet: true });
+    const pollTimer = setInterval(() => { void refresh({ quiet: true }); }, 2000);
     const channel = supabase.channel(channelName(scope))
       .on("postgres_changes", { event: "*", schema: "public", table: "ai_jobs", filter: realtimeFilter(scope) }, (payload) => {
         const parsed = AiJobSchema.safeParse(payload.new);
@@ -133,21 +134,9 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
           }).catch(() => {});
         }
       })
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          subscribed = true;
-          clearInterval(pollTimer ?? undefined);
-          pollTimer = null;
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          subscribed = false;
-          startPolling();
-        }
-      });
-    const realtimeTimeout = setTimeout(startPolling, 3000);
+      .subscribe();
     return () => {
-      closed = true;
-      clearTimeout(realtimeTimeout);
-      clearInterval(pollTimer ?? undefined);
+      clearInterval(pollTimer);
       void supabase.removeChannel(channel);
     };
   }, [hasActiveJobs, hasUnhydratedJobs, scopeKey, refresh]);

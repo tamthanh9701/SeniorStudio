@@ -57,7 +57,7 @@ export default function StyleGroupComposer({
   initialPrompt?: string | null;
   /** Name of the image this generation varies, when it is a variation. */
   sourceLabel?: string | null;
-  onSubmitted?: () => void;
+  onSubmitted?: (job: AiJob) => void;
 }) {
   const [prompt, setPrompt] = useState(sourceVersion?.prompt ?? initialPrompt ?? "");
   const [modelId, setModelId] = useState(models.find((model) => model.id === "openai/gpt-image-2")?.id ?? models[0]?.id ?? "");
@@ -171,7 +171,7 @@ export default function StyleGroupComposer({
         return;
       }
       const parsed = AiJobSchema.safeParse(jobBody.job);
-      if (parsed.success) { setJob(parsed.data); setSubmittedHere(true); onSubmitted?.(); }
+      if (parsed.success) { setJob(parsed.data); setSubmittedHere(true); onSubmitted?.(parsed.data); }
       else setError("The server returned an unexpected job response");
     } catch {
       setError("NETWORK_ERROR: Unable to start generation");

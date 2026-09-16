@@ -105,7 +105,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
   );
   return (
     <>
-      <StudioShell projects={projects} activeProjectId={project.id} userEmail={userEmail} recentJobs={items} leftSidebar={sidebar} center={center} inspector={inspector} />
+      <StudioShell projects={projects} activeProjectId={project.id} userEmail={userEmail} leftSidebar={sidebar} center={center} inspector={inspector} />
       <Dialog open={Boolean(deleteAssetTarget)} onOpenChange={(open) => { if (!open && !deletingAsset) setDeleteAssetTarget(null); }}>
         <DialogContent showCloseButton={false} className="sm:max-w-md">
           <DialogHeader>
