@@ -1,3 +1,4 @@
+import { MAX_STYLE_REFERENCES } from "./reference-limits";
 import { z } from "zod";
 import { PromptSchemaSchema } from "./generation-packet";
 
@@ -20,7 +21,7 @@ export const ConfirmedStyleDefinitionSchema = z
     definition_version: z.literal(1),
     style_revision: z.string().uuid(),
     schema_snapshot: PromptSchemaSchema,
-    reference_snapshot: z.array(ConfirmedReferenceSchema).min(1).max(20),
+    reference_snapshot: z.array(ConfirmedReferenceSchema).min(1).max(MAX_STYLE_REFERENCES),
     confirmed_at: z.string().min(1),
   })
   .strict();

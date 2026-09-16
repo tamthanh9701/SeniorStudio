@@ -5,6 +5,7 @@ import { AiJobSchema, type AiJob } from "@/db/ai-jobs";
 import { prepareImageBytes } from "@/lib/assets/service";
 import { compositeInpaintResult } from "@/lib/assets/inpaint-composite";
 import { formatDateTime } from "@/lib/format/datetime";
+import { mapWithConcurrency } from "@/lib/utils";
 import { providerForJob } from "@/lib/ai/providers";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types";
@@ -301,23 +302,25 @@ async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<P
   }
   // Read once: a job may borrow references from other styles of its library.
   const jobStyleId = job.style_id;
+  if (referenceIds.length > 0 && !jobStyleId) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
   let libraryId: string | null = null;
   if (referenceIds.length > 0) {
-    if (!jobStyleId) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
     const { data: styleRow, error: styleError } = await client.from("styles").select("library_id").eq("id", jobStyleId).single();
     if (styleError) throw new ProviderError("NOT_FOUND", "Style not found");
     libraryId = typeof styleRow?.library_id === "string" ? styleRow.library_id : null;
   }
-  for (const referenceId of referenceIds) {
-    if (!jobStyleId) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
-    const owned = await getOwnedJobReference(client, { workspaceId: job.workspace_id, styleId: jobStyleId, referenceId, libraryId });
+  // Three at a time: a style may send sixteen references, and the lease is 180 s,
+  // so serialising two round trips per reference wasted most of it.
+  const referenceImages = await mapWithConcurrency(referenceIds, 3, async (referenceId) => {
+    const owned = await getOwnedJobReference(client, { workspaceId: job.workspace_id, styleId: jobStyleId!, referenceId, libraryId });
     const downloaded = await downloadOwnedBytes(client, owned.owned);
     const expected = expectedHashes!.get(referenceId) ?? "";
     if (expected && sha256Hex(downloaded.bytes) !== expected) {
       throw new ProviderError("REFERENCE_CONTENT_CHANGED", "A reference image no longer matches the style definition");
     }
-    inputImages.push({ role: "reference", id: referenceId, ...downloaded });
-  }
+    return { role: "reference" as const, id: referenceId, ...downloaded };
+  });
+  inputImages.push(...referenceImages);
   if (job.operation === "inpaint" && (job.input.mask_id || job.input.mask_storage_path)) {
     const owned = await getOwnedJobMask(client, job.workspace_id, job.id);
     maskBytes = (await downloadOwnedBytes(client, owned.owned)).bytes;

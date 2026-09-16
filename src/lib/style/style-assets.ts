@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSignedUrl } from "@/lib/assets/service";
-import { STORAGE_BUCKET } from "@/db/schema";
+import { getSignedUrls } from "@/lib/assets/service";
 import { getSchemaVersions } from "./schema-versions";
 
 /**
@@ -45,13 +44,12 @@ export async function listLiveStyleReferences(client: SupabaseClient, styleId: s
     .eq("style_id", styleId)
     .is("retired_at", null)
     .order("created_at");
-  return Promise.all(
-    (references ?? []).map(async (reference) => {
-      const { data } = await client.storage.from(STORAGE_BUCKET).createSignedUrl(reference.storage_path, 600);
-      const { storage_path: _storagePath, ...metadata } = reference;
-      return { ...metadata, signed_url: data?.signedUrl ?? null } as StyleReferenceView;
-    }),
-  );
+  // One signing round trip for the whole list instead of one per reference.
+  const signed = await getSignedUrls(client, (references ?? []).map((reference) => reference.storage_path));
+  return (references ?? []).map((reference) => {
+    const { storage_path: storagePath, ...metadata } = reference;
+    return { ...metadata, signed_url: signed.get(storagePath) ?? null } as StyleReferenceView;
+  });
 }
 
 export async function listStyleAssets(
@@ -117,8 +115,9 @@ export async function listStyleAssets(
     }
   }
 
-  const assets = await Promise.all(
-    pageAssets.map(async (row) => {
+  // Same again for the gallery page: one round trip for every cover.
+  const gallerySigned = await getSignedUrls(client, pageAssets.map((row) => (row.current_version_id ? versionById.get(row.current_version_id)?.storage_path ?? null : null)));
+  const assets = pageAssets.map((row) => {
       const version = row.current_version_id ? versionById.get(row.current_version_id) : undefined;
       const parentVersionId = version?.parent_version_id ?? null;
       return {
@@ -126,15 +125,14 @@ export async function listStyleAssets(
         name: row.name,
         kind: row.kind,
         currentVersionId: row.current_version_id,
-        signedUrl: version?.storage_path ? await getSignedUrl(client, version.storage_path) : null,
+        signedUrl: version?.storage_path ? gallerySigned.get(version.storage_path) ?? null : null,
         createdAt: row.created_at,
         parentVersionId,
         sourceAssetId: parentVersionId ? (parentToSourceAsset.get(parentVersionId) ?? null) : null,
         pendingVersionId: pendingByAsset.get(row.id) ?? null,
         originalPrompt: promptByAsset.get(row.id) ?? null,
       } satisfies StyleGalleryAsset;
-    }),
-  );
+  });
 
   const last = pageAssets[pageAssets.length - 1];
   const nextCursor = hasMore

@@ -103,6 +103,14 @@ The route claims up to three jobs per invocation and also sweeps expired inpaint
 reconciles uploads kept after an unreadable persistence outcome, so those cleanups run on
 the same five-second cadence.
 
+## Storage orphan audit
+
+`pnpm exec tsx scripts/audit-storage-orphans.ts <workspace-id> [--limit <depth>]` walks the
+`assets` bucket under that workspace prefix and prints every object that no row references in
+`style_references.storage_path`, `asset_versions.storage_path` or `ai_job_inputs.storage_path`,
+one path per line, ending with a `orphans=<n>` summary. It is read-only — it audits and deletes
+nothing, so removing anything it reports stays a manual, deliberate step.
+
 ## Quota scopes
 
 Two limits gate AI usage and they are configured in different places:
@@ -118,7 +126,8 @@ Changing one does not change the other.
 ## Staging verification (optional)
 
 `scripts/apply-staging-migrations.ts` and `scripts/verify-staging-target.ts` only run in a
-protected environment, and refuse to touch anything unless these are set:
+protected environment, and refuse to touch anything unless these are set (run them through
+`pnpm db:staging:apply` and `pnpm db:staging:verify`):
 
 `STAGING_SUPABASE_PROJECT_REF`, `STAGING_DB_HOST`, `STAGING_DB_PORT`, `STAGING_DB_USER`,
 `STAGING_DB_CA`, `TEST_DATABASE_URL`, `ALLOW_STAGING_MIGRATIONS=1`, `STAGING_APPLY_MUTATION`.

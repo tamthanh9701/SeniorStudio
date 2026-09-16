@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import StyleWorkspace, { type WorkspaceTab } from "@/components/studio/StyleWorkspace";
 import { createClient } from "@/supabase/server";
 import { getModelCatalog } from "@/lib/ai/models";
-import { AiJobSchema, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { AiJobSchema, FEED_COLUMNS, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { getStyleSetupState, type StyleSetupState } from "@/lib/style/confirmed-definition";
 import { getStyleDetail, listStyleAssets } from "@/lib/style/style-assets";
@@ -46,7 +46,7 @@ export default async function StyleGroupPage({
     supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single(),
     getStyleDetail(supabase, styleId),
     listStyleAssets(supabase, styleId, { limit: 50 }).catch(() => ({ assets: [], nextCursor: null })),
-    supabase.from("ai_jobs").select("*").eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(FEED_LIMIT),
+    supabase.from("ai_jobs").select(FEED_COLUMNS).eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(FEED_LIMIT),
   ]);
   const workspaceId = workspaceMember?.workspace_id;
   // The catalog needs the workspace, so it follows the membership lookup.

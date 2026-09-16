@@ -3,6 +3,14 @@ import { z } from "zod";
 /** Feed page size: one screen of history, shared by the route and the SSR seed. */
 export const FEED_LIMIT = 25;
 
+/**
+ * Columns a job feed needs. `style_generation` is deliberately absent: ~6 KB per
+ * job of provenance that no client code reads (the composer takes its provenance
+ * from the version row server-side).
+ */
+export const FEED_COLUMNS =
+  "id, workspace_id, project_id, module, requested_by, asset_id, parent_version_id, version_id, source_version_id, operation, provider, model, status, attempt_count, lease_owner, lease_expires_at, provider_request_id, provider_status, input, output, error_code, error_message, created_at, updated_at, completed_at, style_id";
+
 export const AI_JOBS_TABLE = "ai_jobs";
 export const AI_JOB_INPUTS_TABLE = "ai_job_inputs";
 

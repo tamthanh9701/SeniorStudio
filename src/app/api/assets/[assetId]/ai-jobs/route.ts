@@ -4,7 +4,7 @@ import { assertModelSupports } from "@/lib/ai/models";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
-import { StyleError } from "@/lib/style/errors";
+import { apiErrorFrom } from "@/lib/http/api-errors";
 
 export async function POST(request: Request, { params }: { params: Promise<{ assetId: string }> }) {
   const { assetId } = await params;
@@ -64,21 +64,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
     if (error) throw error;
     return NextResponse.json({ job }, { status: 202 });
   } catch (error) {
-    if (error instanceof StyleError) {
-      return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-    }
-    const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const code = [
-      "NOT_FOUND", "VERSION_CONFLICT", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "SOURCE_NOT_FOUND",
-      "STYLE_NOT_READY", "STYLE_NOT_ACTIVE", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED",
-      "STYLE_DEFINITION_INVALID", "STYLE_CONFLICT", "REFERENCE_NOT_FOUND", "REFERENCE_CONTENT_CHANGED",
-      "quota_exceeded", "QUOTA_UNAVAILABLE", "UNSUPPORTED_SETTINGS", "PLAN_CONSENT_MISMATCH",
-    ].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
-    const status = code === "NOT_FOUND" || code === "SOURCE_NOT_FOUND" || code === "REFERENCE_NOT_FOUND" ? 404
-      : code === "PROVIDER_NOT_CONFIGURED" || code === "QUOTA_UNAVAILABLE" ? 503
-        : code === "quota_exceeded" ? 429
-          : ["VERSION_CONFLICT", "STYLE_NOT_READY", "STYLE_NOT_ACTIVE", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED", "STYLE_DEFINITION_INVALID", "STYLE_CONFLICT", "REFERENCE_CONTENT_CHANGED", "PLAN_CONSENT_MISMATCH"].includes(code) ? 409
-            : 400;
-    return NextResponse.json({ error: { code, message } }, { status });
+    const failure = apiErrorFrom(error);
+    return NextResponse.json({ error: { code: failure.code, message: failure.message } }, { status: failure.status });
   }
 }

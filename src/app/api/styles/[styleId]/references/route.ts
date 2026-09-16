@@ -6,9 +6,11 @@ import sharp, { type Metadata } from "sharp";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS, MAX_STYLE_REFERENCES } from "@/lib/style/reference-limits";
+import { mapWithConcurrency } from "@/lib/utils";
 
-const MAX_REFERENCES = 20;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_REFERENCES = MAX_STYLE_REFERENCES;
+const MAX_FILE_BYTES = MAX_REFERENCE_BYTES;
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const SUPPORTED_MIME = new Set(["image/png", "image/jpeg"]);
 
@@ -25,30 +27,6 @@ type ValidatedReference = {
 };
 
 type InvalidReference = { ok: false; response: NextResponse };
-async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  let active = 0;
-
-  return new Promise((resolve, reject) => {
-    const schedule = () => {
-      if (nextIndex >= items.length && active === 0) {
-        resolve(results);
-        return;
-      }
-      while (active < limit && nextIndex < items.length) {
-        const index = nextIndex++;
-        active += 1;
-        mapper(items[index], index).then((result) => {
-          results[index] = result;
-          active -= 1;
-          schedule();
-        }, reject);
-      }
-    };
-    schedule();
-  });
-}
 
 
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
@@ -95,6 +73,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     const expectedFormat = declaredMime === "image/png" ? "png" : "jpeg";
     if (metadata?.format !== expectedFormat) {
       return { ok: false, response: NextResponse.json({ error: { code: "UNSUPPORTED_IMAGE_TYPE", message: "Declared image type does not match file contents" } }, { status: 415 }) };
+    }
+    // File size does not bound decoding cost: a 5 MB PNG can describe hundreds of
+    // megapixels. Refusing here means the style never holds an image the analysis
+    // step would have to reject later.
+    const pixels = (metadata.width ?? 0) * (metadata.height ?? 0);
+    if (pixels > MAX_REFERENCE_PIXELS) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: { code: "REFERENCE_TOO_LARGE", message: `Each reference must be at most ${MAX_REFERENCE_PIXELS / 1_000_000} megapixels (this one is ${metadata.width}x${metadata.height})` } },
+          { status: 413 },
+        ),
+      };
     }
     const contentHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
       .map((byte) => byte.toString(16).padStart(2, "0")).join("");

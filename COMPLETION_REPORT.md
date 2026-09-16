@@ -18,7 +18,7 @@ Hoàn thành source-level implementation cho SeniorStudio theo SENIORSTUDIO_PLAN
 
 ### 2. Ownership & Credentials (src/lib/assets/ownership.ts, download.ts)
 - `OwnedStorageObject`: Branded type with canonical path validation
-- `getOwnedAssetVersion`, `getOwnedStyleReference`, `getOwnedJobMask`: Ownership verification resolvers
+- `getOwnedAssetVersion`, `getOwnedJobReference`, `getOwnedJobMask`: Ownership verification resolvers (`getOwnedJobReference` accepts a style's own live reference or one shared by another style in the same library)
 - `downloadOwnedBytes`, `signOwnedUrl`, `removeOwnedObjects`: Storage helpers with path validation
 - `downloadImageBytes`: MCP URL ingress with host allowlist, size cap, abort support
 
@@ -34,8 +34,9 @@ Hoàn thành source-level implementation cho SeniorStudio theo SENIORSTUDIO_PLAN
 - Bounded deadline as hard budget, parse errors not retried
 - Retry-After clamped to remaining deadline
 
-### 6. Style Route (src/app/api/style/ai-jobs/route.ts)
-- `POST`: image-to-image via `enqueue_image_to_image_job`, source/style ownership validation
+### 6. Style Job Route (src/app/api/styles/[styleId]/ai-jobs/route.ts)
+- `POST`: resolves the style generation plan, enforces consent (`PLAN_CONSENT_MISMATCH`), then enqueues via `enqueue_style_group_job`; project-scoped image-to-image goes through `enqueue_project_image_to_image_job` in `src/app/api/assets/[assetId]/ai-jobs/route.ts`
+- Source/style ownership validation before enqueue
 
 ### 7. Sources Route (src/app/api/styles/[styleId]/sources/route.ts)
 - All methods: Authenticated user client, resolve workspace, ownership checks
@@ -44,9 +45,9 @@ Hoàn thành source-level implementation cho SeniorStudio theo SENIORSTUDIO_PLAN
 ### 8. StyleWorkspace (src/components/studio/StyleWorkspace.tsx)
 - Sends `requestedModelId` to backend
 
-### 9. Tests (tests/style-module-job-route.test.ts)
+### 9. Tests (tests/image-to-image.test.ts)
 - Payload: `sourceVersionId` instead of `sourceUrl`
-- RPC: `enqueue_image_to_image_job`
+- Route: plan consent enforced before `enqueue_style_group_job`
 - Mock: `asset_versions` query for source ownership
 
 ## Verification

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { AiJobSchema, TextToImageEnqueueSchema, providerForModel, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { AiJobSchema, FEED_COLUMNS, TextToImageEnqueueSchema, providerForModel, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { assertModelSupports } from "@/lib/ai/models";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getEnv } from "@/env";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import { getJobResultUrls } from "@/lib/ai/job-results";
+import { apiErrorFrom } from "@/lib/http/api-errors";
 
 export async function GET(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -15,20 +16,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
   if (!project) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, { status: 404 });
   const rawLimit = Number(new URL(request.url).searchParams.get("limit") ?? 50);
   const limit = Math.max(1, Math.min(50, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
-  const { data, error } = await supabase.from("ai_jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(limit);
+  // Every column the feed renders, minus style_generation (see the style feed route).
+  const { data, error } = await supabase.from("ai_jobs").select(FEED_COLUMNS).eq("project_id", projectId).order("created_at", { ascending: false }).limit(limit);
   if (error) return NextResponse.json({ error: { code: "LOAD_FAILED", message: "Unable to load project jobs" } }, { status: 500 });
   const parsedJobs = (data ?? []).map((job) => AiJobSchema.safeParse(job)).filter((result) => result.success).map((result) => result.data).reverse();
   const jobs: ProjectJobFeedItem[] = await Promise.all(parsedJobs.map(async (job) => ({ job, result_urls: await getJobResultUrls(supabase, job) })));
   return NextResponse.json({ jobs });
 }
 
-function statusForError(message: string) {
-  if (message.includes("NOT_FOUND")) return 404;
-  if (message.includes("PROVIDER_NOT_CONFIGURED")) return 503;
-  if (message.includes("quota_exceeded")) return 429;
-  if (message.includes("QUOTA_UNAVAILABLE")) return 503;
-  return 400;
-}
 
 export async function POST(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -58,8 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (error) throw error;
     return NextResponse.json({ job }, { status: 202 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const code = ["NOT_FOUND", "INVALID_MODEL", "PROVIDER_NOT_CONFIGURED", "STYLE_NOT_FOUND", "STYLE_NOT_ACTIVE", "quota_exceeded", "QUOTA_UNAVAILABLE"].find((candidate) => message.includes(candidate)) ?? "INVALID_REQUEST";
-    return NextResponse.json({ error: { code, message } }, { status: statusForError(message) });
+    const failure = apiErrorFrom(error);
+    return NextResponse.json({ error: { code: failure.code, message: failure.message } }, { status: failure.status });
   }
 }

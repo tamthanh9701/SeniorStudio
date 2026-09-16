@@ -22,3 +22,9 @@ jobs:
         env:
           ALLOW_STAGING_MIGRATIONS: "1"
       - run: RUN_DB_INTEGRATION=1 pnpm exec vitest run tests/integration/runtime-contracts.test.ts tests/integration/runtime-concurrency.test.ts
+      # The migration guards: hard delete counts and ownership, packet subset and
+      # library rules, enqueue/delete serialization, mask sweeper.
+      - run: RUN_DB_INTEGRATION=1 pnpm exec vitest run tests/integration/style-guards.test.ts
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+          STAGING_DB_CA: ${{ secrets.STAGING_DB_CA }}

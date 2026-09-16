@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Check, LoaderCircle, RotateCcw, Square } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { AiJob, AiJobStatus, ProjectJobFeedItem } from "@/db/ai-jobs";
 import { JOB_STATUS_LABELS, jobErrorMessage } from "@/lib/ai/presentation";
 import { formatDate, formatTime, vnDayKey, TIME_ZONE_LABEL } from "@/lib/format/datetime";
+import { useTodayKey } from "@/lib/format/use-today-key";
 
 const ACTIVE_STEPS: readonly AiJobStatus[] = ["queued", "submitting", "processing", "persisting", "succeeded"];
 const TERMINAL_STATUSES: readonly AiJobStatus[] = ["succeeded", "failed", "canceled"];
@@ -44,8 +45,7 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
 }) {
   // Resolved after mount so the server and the client agree on "today" before
   // the first paint; until then the bands show the date alone.
-  const [todayKey, setTodayKey] = useState<string | null>(null);
-  useEffect(() => setTodayKey(vnDayKey(Date.now())), []);
+  const todayKey = useTodayKey();
 
   // Jobs arrive newest first, so consecutive equal day keys are one band.
   const days = useMemo(() => {
@@ -71,7 +71,7 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
         <section key={day.key} className="space-y-8" aria-label={formatDate(day.createdAt) ?? day.key}>
           <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-2">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground">
-              {day.key === todayKey ? `Hôm nay · ${formatDate(day.createdAt)}` : formatDate(day.createdAt)}
+              {day.key === todayKey ? `Today · ${formatDate(day.createdAt)}` : formatDate(day.createdAt)}
               <span className="ml-2 font-normal">{TIME_ZONE_LABEL}</span>
             </p>
             <p className="text-xs text-muted-foreground">{day.succeeded} done · {day.failed} failed · {day.running} running</p>

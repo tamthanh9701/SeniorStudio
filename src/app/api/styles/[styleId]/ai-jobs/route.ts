@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { AiJobSchema, CostModeSchema, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { AiJobSchema, CostModeSchema, FEED_COLUMNS, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { createClient } from "@/supabase/server";
 import { getJobResultUrls } from "@/lib/ai/job-results";
+import { apiErrorFrom } from "@/lib/http/api-errors";
 import { z } from "zod";
 
 const ContentOverridesSchema = z.record(z.string(), z.unknown()).nullable().optional();
@@ -16,23 +17,6 @@ const StyleGroupJobSchema = z.discriminatedUnion("operation", [
 ]);
 export const maxDuration = 120;
 
-function statusForError(message: string): number {
-  if (message.includes("NOT_FOUND") || message.includes("SOURCE_NOT_FOUND") || message.includes("REFERENCE_NOT_FOUND") || message.includes("STYLE_NOT_FOUND")) return 404;
-  if (message.includes("PROVIDER_NOT_CONFIGURED")) return 503;
-  if (message.includes("quota_exceeded") || message.includes("QUOTA_UNAVAILABLE")) return message.includes("quota_exceeded") ? 429 : 503;
-  if (
-    message.includes("VERSION_CONFLICT") ||
-    message.includes("PLAN_CONSENT_MISMATCH") ||
-    message.includes("STYLE_NOT_READY") ||
-    message.includes("STYLE_NOT_ACTIVE") ||
-    message.includes("STYLE_ANALYSIS_STALE") ||
-    message.includes("STYLE_SOURCE_SNAPSHOT_REQUIRED") ||
-    message.includes("STYLE_DEFINITION_INVALID") ||
-    message.includes("STYLE_CONFLICT") ||
-    message.includes("REFERENCE_CONTENT_CHANGED")
-  ) return 409;
-  return 400;
-}
 
 export async function GET(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   const { styleId } = await params;
@@ -42,7 +26,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ styl
   // No style lookup: the job query is already scoped by style_id and RLS, and a
   // style without jobs answers with an empty feed.
   const limit = Math.max(1, Math.min(50, Math.floor(Number(new URL(request.url).searchParams.get("limit") ?? FEED_LIMIT))));
-  const { data, error } = await supabase.from("ai_jobs").select("*").eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(limit);
+  // Every column the feed renders, minus style_generation: that packet is ~6 KB per
+  // job and no client code reads it.
+  const { data, error } = await supabase.from("ai_jobs").select(FEED_COLUMNS).eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(limit);
   if (error) return NextResponse.json({ error: { code: "LOAD_FAILED" } }, { status: 500 });
   const jobs = await Promise.all((data ?? []).map(async (raw) => { const parsed = AiJobSchema.safeParse(raw); return parsed.success ? { job: parsed.data, result_urls: await getJobResultUrls(supabase, parsed.data) } : null; }));
   return NextResponse.json({ jobs: jobs.filter((job): job is ProjectJobFeedItem => job !== null).reverse() });
@@ -64,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     if (error) throw error;
     return NextResponse.json({ job, plan: result.plan }, { status: 202 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    return NextResponse.json({ error: { code: message.split(":")[0], message } }, { status: statusForError(message) });
+    const failure = apiErrorFrom(error);
+    return NextResponse.json({ error: { code: failure.code, message: failure.message } }, { status: failure.status });
   }
 }

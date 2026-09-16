@@ -35,7 +35,9 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatDateTime, vnDayKey } from "@/lib/format/datetime";
+import { useTodayKey } from "@/lib/format/use-today-key";
 import { isTerminalStatus, type AiJob, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { MAX_REFERENCE_BYTES, MAX_STYLE_REFERENCES } from "@/lib/style/reference-limits";
 import { useModuleJobs } from "@/lib/ai/use-module-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import type { StyleClarificationQuestionSet } from "@/lib/style/clarification-questions";
@@ -47,8 +49,8 @@ import {
   type StyleSetupState,
 } from "@/lib/style/confirmed-definition";
 
-const MAX_REFERENCES = 20;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_REFERENCES = MAX_STYLE_REFERENCES;
+const MAX_FILE_BYTES = MAX_REFERENCE_BYTES;
 // The upload route accepts 20 MB per request; more files than that go in
 // several requests because one oversized body would be rejected outright.
 const MAX_UPLOAD_BATCH_FILES = 4;
@@ -237,7 +239,7 @@ export default function StyleWorkspace({
   // The feed is live: the worker updates rows while the user watches, and the
   // server-rendered jobs only seed it.
   const { items: jobs, addJob } = useModuleJobs({ module: "style", styleId }, initialJobs);
-  const [todayKey, setTodayKey] = useState<string | null>(null);
+  const todayKey = useTodayKey();
   const activeJobIds = useMemo(() => jobs.filter(({ job }) => !isTerminalStatus(job.status)).map(({ job }) => job.id), [jobs]);
   const previousActiveJobIds = useRef(activeJobIds);
 
@@ -288,7 +290,6 @@ export default function StyleWorkspace({
   }, [refresh]);
 
   useEffect(() => { setNameDraft(detail?.name ?? ""); }, [detail?.name]);
-  useEffect(() => setTodayKey(vnDayKey(Date.now())), []);
 
   const references = useMemo(() => detail?.references ?? [], [detail?.references]);
   const setupState: StyleSetupState = detail ? getStyleSetupState(detail, references.length) : "references";

@@ -70,6 +70,7 @@ export default function StyleGroupComposer({
   const [quality, setQuality] = useState("auto");
   const [count, setCount] = useState<1 | 2 | 3 | 4>(1);
   const [submitting, setSubmitting] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [readyPlan, setReadyPlan] = useState<ReadyPlan | null>(null);
   const [readyRevision, setReadyRevision] = useState(-1);
@@ -87,6 +88,16 @@ export default function StyleGroupComposer({
   const busyRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+
+  /**
+   * A plan is being resolved. The ref is the re-entrancy guard across awaits
+   * and the state is what render reads — a ref must not be read during render
+   * — so both are written together and cannot drift apart.
+   */
+  const markBusy = (value: boolean) => {
+    busyRef.current = value;
+    setPreparing(value);
+  };
 
   useEffect(() => {
     if (initialPrompt) setPrompt(initialPrompt);
@@ -146,7 +157,7 @@ export default function StyleGroupComposer({
   const resolvePlan = async (): Promise<ResolvedPlan | null> => {
     if (!prompt.trim() || !selectedModel || busyRef.current) return null;
     const revision = inputRevisionRef.current;
-    busyRef.current = true;
+    markBusy(true);
     setError(null);
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -170,7 +181,7 @@ export default function StyleGroupComposer({
       if (mountedRef.current) setError("NETWORK_ERROR: Unable to resolve the generation plan");
       return null;
     } finally {
-      busyRef.current = false;
+      markBusy(false);
     }
   };
 
@@ -185,7 +196,7 @@ export default function StyleGroupComposer({
   const submit = async () => {
     if (!readyPlan || busyRef.current) return;
     if (readyRevision !== inputRevisionRef.current) { invalidate(); return; }
-    busyRef.current = true;
+    markBusy(true);
     setSubmitting(true);
     setError(null);
     try {
@@ -219,7 +230,7 @@ export default function StyleGroupComposer({
     } catch {
       setError("NETWORK_ERROR: Unable to start generation");
     } finally {
-      busyRef.current = false;
+      markBusy(false);
       setSubmitting(false);
     }
   };
@@ -410,10 +421,10 @@ export default function StyleGroupComposer({
           </div>
         )}
 
-        <Button onClick={() => void review()} disabled={!prompt.trim() || !selectedModel || submitting || running || busyRef.current || !confirmedRevision} className="w-full">
-          {busyRef.current ? <><LoaderCircle className="size-4 animate-spin" /> Preparing…</> : "Generate"}
+        <Button onClick={() => void review()} disabled={!prompt.trim() || !selectedModel || submitting || running || preparing || !confirmedRevision} className="w-full">
+          {preparing ? <><LoaderCircle className="size-4 animate-spin" /> Preparing…</> : "Generate"}
         </Button>
-        {!confirmedRevision && <p className="text-xs text-muted-foreground">Confirm this style's references and analysis before generating images.</p>}
+        {!confirmedRevision && <p className="text-xs text-muted-foreground">Confirm this style&apos;s references and analysis before generating images.</p>}
       </div>
 
       <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>

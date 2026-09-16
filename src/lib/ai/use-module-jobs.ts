@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/supabase/client";
 import { AiJobSchema, ProjectJobFeedItemSchema, isTerminalStatus, type AiJob, type ProjectJobFeedItem } from "@/db/ai-jobs";
 
 type StyleScope = { module: "style"; styleId: string };
@@ -13,15 +12,7 @@ function endpointFor(scope: ModuleScope) {
   return `/api/projects/${scope.projectId}/ai-jobs?limit=50`;
 }
 
-function realtimeFilter(scope: ModuleScope) {
-  if (scope.module === "style") return `style_id=eq.${scope.styleId}`;
-  return `project_id=eq.${scope.projectId}`;
-}
 
-function channelName(scope: ModuleScope) {
-  if (scope.module === "style") return `style-group-${scope.styleId}`;
-  return `project-jobs-${scope.projectId}`;
-}
 const STATUS_ORDER: Record<AiJob["status"], number> = { queued: 0, submitting: 1, processing: 2, persisting: 3, succeeded: 4, failed: 4, canceled: 4 };
 const POLL_INTERVAL_MS = 2000;
 
@@ -115,12 +106,11 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
 
   useEffect(() => {
     if (!hasActiveJobs && !hasUnhydratedJobs) return;
-    const supabase = createClient();
-    // A change reaches a subscriber only when its role may read the row.  This client is
-    // cookie-authenticated, so its Realtime socket carries the anon key alone and the
-    // workspace policy hides every ai_jobs row: the channel still reports SUBSCRIBED and
-    // no event ever arrives.  Polling is therefore the delivery mechanism and the channel
-    // only accelerates it, instead of the poll being a fallback for a dead socket.
+    // Polling is the delivery mechanism.  Realtime was tried here and removed: a
+    // change reaches a subscriber only when its role may read the row, this client
+    // is cookie-authenticated, and the workspace policy hides every ai_jobs row, so
+    // the channel reported SUBSCRIBED while never delivering an event - one idle
+    // socket per open tab.
     void refresh({ quiet: true });
     // The next poll waits for this one to settle.  A fixed interval overlaps itself on a
     // slow server (2.4-2.9s here), and a superseded response is discarded, so the feed
@@ -139,25 +129,9 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
       pollTimer = window.setTimeout(() => { void poll(); }, Math.max(500, POLL_INTERVAL_MS - (Date.now() - startedAt)));
     };
     pollTimer = window.setTimeout(() => { void poll(); }, 0);
-    const channel = supabase.channel(channelName(scope))
-      .on("postgres_changes", { event: "*", schema: "public", table: "ai_jobs", filter: realtimeFilter(scope) }, (payload) => {
-        const parsed = AiJobSchema.safeParse(payload.new);
-        if (!parsed.success) return;
-        const job = parsed.data;
-        const previousStatus = previousStatuses.current.get(job.id);
-        previousStatuses.current.set(job.id, job.status);
-        setItems((current) => mergeModuleJob(current, job));
-        if (isTerminalStatus(job.status) && !isTerminalStatus(previousStatus ?? "queued") && !terminalRefreshes.current.has(job.id)) {
-          void refresh().then((refreshed) => {
-            if (refreshed) terminalRefreshes.current.add(job.id);
-          }).catch(() => {});
-        }
-      })
-      .subscribe();
     return () => {
       closed = true;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
-      void supabase.removeChannel(channel);
     };
   }, [hasActiveJobs, hasUnhydratedJobs, scopeKey, refresh]);
 

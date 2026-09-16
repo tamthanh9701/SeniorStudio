@@ -46,6 +46,11 @@ function setupStateOf(style: StyleListItem): StyleSetupState {
   return style.setupState ?? (style.status === "active" ? "ready" : "references");
 }
 
+/** `1 image`, `2 images`: the card counts are read at a glance and must not look wrong. */
+function counted(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 export default function StylePanel({ notice }: { notice?: string | null } = {}) {
   // Held in state: the URL is cleaned immediately after mount, and the message
   // must survive that navigation.
@@ -238,7 +243,7 @@ export default function StylePanel({ notice }: { notice?: string | null } = {}) 
                   <Badge variant={style.status === "active" ? "default" : "secondary"}>{style.status === "active" ? "Active" : "Draft"}</Badge>
                   <Badge variant="secondary">{SETUP_STATUS[setupState]}</Badge>
                 </div>
-                <p className="mt-auto text-xs text-muted-foreground">{style.imageCount} images · {style.referenceCount} references</p>
+                <p className="mt-auto text-xs text-muted-foreground">{counted(style.imageCount, "image")} · {counted(style.referenceCount, "reference")}</p>
                 {formatDate(style.updatedAt) && <p className="text-xs text-muted-foreground">Updated {formatDate(style.updatedAt)}</p>}
               </div>
             </Card>

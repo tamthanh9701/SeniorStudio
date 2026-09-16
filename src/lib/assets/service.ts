@@ -153,11 +153,23 @@ export async function ingestImage(params: {
   });
 }
 
+/**
+ * How long a signed URL stays valid. One value for every caller: pages that hold
+ * URLs for their lifetime (galleries, boards) died after ten minutes when this was
+ * per-call.
+ */
+export const SIGNED_URL_TTL_SECONDS = 3600;
+
 export async function getSignedUrl(
   client: SupabaseClient,
   storagePath: string,
-): Promise<string> {
-  return signOwnedUrl(client, ownedStorageObjectFromPath(storagePath), 600);
+): Promise<string | null> {
+  try {
+    return await signOwnedUrl(client, ownedStorageObjectFromPath(storagePath), SIGNED_URL_TTL_SECONDS);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "INVALID_STORAGE_PATH") return null;
+    throw error;
+  }
 }
 
 /**
@@ -167,16 +179,18 @@ export async function getSignedUrl(
 export async function getSignedUrls(
   client: SupabaseClient,
   paths: ReadonlyArray<string | null | undefined>,
-  expiresIn = 3600,
+  expiresIn = SIGNED_URL_TTL_SECONDS,
 ): Promise<Map<string, string>> {
   const signed = new Map<string, string>();
   const unique = [...new Set(paths.filter((path): path is string => typeof path === "string" && path.length > 0))].filter((path) => {
     // Traversal and workspace-prefix rules match the single-path signing path;
-    // one malformed row must not blank out the whole list.
+    // one malformed row must not blank out the whole list, but it must not vanish
+    // silently either.
     try {
       ownedStorageObjectFromPath(path);
       return true;
     } catch {
+      console.error(`signed url skipped for an invalid path: ${path.slice(0, 160)}`);
       return false;
     }
   });

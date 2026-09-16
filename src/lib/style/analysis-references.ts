@@ -7,12 +7,13 @@
 // so resolution metrics stay truthful.
 import sharp from "sharp";
 import { StyleError } from "./errors";
+import { MAX_REFERENCE_PIXELS } from "./reference-limits";
 import type { ReferenceInput } from "./reference-preprocess";
 
 const DEFAULT_MAX_EDGE = 640;
 const JPEG_QUALITY = 82;
-/** Decoding is the expensive step: a 5 MB PNG can describe 260 megapixels. */
-const MAX_DECODE_PIXELS = 40_000_000;
+/** Decoding is the expensive step; the same budget the upload route enforces. */
+const MAX_DECODE_PIXELS = MAX_REFERENCE_PIXELS;
 /** Two references at a time: twenty full decodes in parallel exhaust the instance. */
 const DECODE_CONCURRENCY = 2;
 

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
-import { StyleError } from "@/lib/style/errors";
 import { resolveUserWorkspaceId } from "@/lib/ai/models";
 import { resolveImageExecutionPlan } from "@/lib/ai/execution-plan";
+import { apiErrorFrom } from "@/lib/http/api-errors";
 import { AiOperationSchema } from "@/db/ai-jobs";
 import { z } from "zod";
 
@@ -57,26 +57,10 @@ export async function POST(request: Request) {
     const plan = await resolveImageExecutionPlan(supabase, input);
     return NextResponse.json({ plan });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to resolve execution plan";
     // Style-domain failures carry their own code; the caller needs it (for
     // example to offer explicit adoption of the confirmed style) and the
     // message is prose, so a code is never recoverable from it.
-    if (error instanceof StyleError) {
-      return NextResponse.json({ error: { code: error.code, message } }, { status: error.status });
-    }
-    const code = [
-      "PROMPT_REQUIRED", "REFERENCE_NOT_FOUND", "REFERENCE_LIMIT_EXCEEDED", "STYLE_NOT_READY",
-      "STYLE_NOT_ACTIVE", "STYLE_NOT_FOUND", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED",
-      "STYLE_DEFINITION_INVALID", "STYLE_CONFLICT", "PROVIDER_NOT_CONFIGURED", "UNSUPPORTED_SETTINGS", "VERSION_CONFLICT",
-    ].find((candidate) => message.includes(candidate)) ?? "PLAN_FAILED";
-    const status = ["STYLE_NOT_ACTIVE", "STYLE_NOT_READY", "STYLE_ANALYSIS_STALE", "STYLE_SOURCE_SNAPSHOT_REQUIRED", "STYLE_DEFINITION_INVALID", "STYLE_CONFLICT", "VERSION_CONFLICT"].includes(code)
-      ? 409
-      : code === "PROVIDER_NOT_CONFIGURED"
-        ? 503
-        : ["REFERENCE_NOT_FOUND", "STYLE_NOT_FOUND"].includes(code)
-          ? 404
-          : 400;
-    const errorCode = code === "PROMPT_REQUIRED" ? "INVALID_REQUEST" : code;
-    return NextResponse.json({ error: { code: errorCode, message } }, { status });
+    const failure = apiErrorFrom(error, { fallbackCode: "PLAN_FAILED", fallbackStatus: 400 });
+    return NextResponse.json({ error: { code: failure.code, message: failure.message } }, { status: failure.status });
   }
 }
