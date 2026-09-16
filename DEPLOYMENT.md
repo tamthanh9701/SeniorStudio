@@ -144,6 +144,13 @@ The same suites run in `ci.yml` on every push **when the repository has a
 `TEST_DATABASE_URL` secret** (the step is skipped without one). Set it to a staging
 database, not production.
 
+One fixture is intentionally visible to the worker: the claim race must publish its job
+to race on it. The worker runs every five seconds and claims the oldest queued row, so a
+run gives each fixture a 1970 timestamp to be that row, and the race test detects the
+worker winning and re-inserts its fixture instead of asserting on a foreign lease. The
+remaining fixtures are built inside the transaction that claims them or carry
+`attempt_count = 1`, which `claim_ai_jobs` refuses.
+
 ## Auth: token verification, and the legacy secret that is left
 
 Handlers used to open with `supabase.auth.getUser()`, a round trip to the auth server for
