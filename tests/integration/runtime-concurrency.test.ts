@@ -130,7 +130,11 @@ dbSuite("runtime concurrency (database)", () => {
 
   it("only the owner may renew or start a claim", { timeout: 60_000 }, async () => {
     const { admin } = harness;
-    const { jobId } = await insertAndClaim({ createdAt: "1970-01-01T00:00:01+00", withReservation: true }, "lease-a");
+    // A workspace of its own: starting the provider charges quota, and charged is
+    // never refunded, so the shared workspace's counter would grow with every run.
+    const scope = await harness.createWorkspace("Concurrency lease");
+    const style = await harness.createStyle("Lease fixture", { references: 1, workspaceId: scope.workspaceId });
+    const { jobId } = await insertAndClaim({ createdAt: "1970-01-01T00:00:01+00", withReservation: true, workspaceId: scope.workspaceId, styleId: style.styleId }, "lease-a");
     expect((await admin.query("select status, lease_owner from public.ai_jobs where id = $1", [jobId])).rows[0]).toMatchObject({ status: "submitting", lease_owner: "lease-a" });
 
     await expect(harness.asService("select public.renew_ai_job_lease($1, 'lease-b', 120)", [jobId])).rejects.toThrow(/LEASE_NOT_OWNED/);
