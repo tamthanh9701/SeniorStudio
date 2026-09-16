@@ -133,5 +133,31 @@ protected environment, and refuse to touch anything unless these are set (run th
 `STAGING_DB_CA`, `TEST_DATABASE_URL`, `ALLOW_STAGING_MIGRATIONS=1`, `STAGING_APPLY_MUTATION`.
 
 The database and online suites are skipped by default; they need `RUN_DB_INTEGRATION=1`
-(with `TEST_DATABASE_URL` + `STAGING_DB_CA`) and `RUN_ONLINE_E2E=1` with an HTTPS
+(with `TEST_DATABASE_URL`; `STAGING_DB_CA` is optional and only switches the connection
+to verify the server certificate) and `RUN_ONLINE_E2E=1` with an HTTPS
 `STAGING_APP_URL`.
+
+## Auth: the per-request round trip (infrastructure item, not a code change)
+
+Every request handler starts with `supabase.auth.getUser()`, which asks the Supabase auth
+server over the network. Measured against production that call costs ~0.8 s per handler,
+and a request that runs several of them pays it every time. It cannot be removed in
+application code while the project signs its JWTs symmetrically: the header of
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` decodes to `{"alg":"HS256","typ":"JWT"}`, and a shared
+secret cannot be shipped to the client, so a token can only be verified with a round trip.
+
+The switch, in this order:
+
+1. Rotate the project to an asymmetric signing key: Supabase dashboard → Project Settings →
+   API → JWT signing keys (`unverified — confirm first`: the menu has moved between
+   releases). Publish the new key and keep the legacy secret until every client has moved.
+2. Replace `auth.getUser()` with `auth.getClaims()` in the call sites — today 63
+   (`grep -rn "auth.getUser()" src/`), 50 of them in route handlers. `getClaims()` verifies
+   the token locally against the project's JWKS, so the round trip disappears; the claims it
+   returns (`sub`, `role`, expiry) are the ones the handlers already read.
+
+Ship the code and the rotation together. With a symmetric key `getClaims()` falls back to
+the same network call (`unverified — confirm first` against the supabase-js documentation
+for the version in `package.json`), so deploying one half on its own buys nothing.
+
+Expected effect: one auth round trip per handler becomes zero.

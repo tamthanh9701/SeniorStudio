@@ -30,6 +30,13 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+/** ProviderSettings defers its first load by a tick, so a flush crosses a macrotask. */
+const flush = () => act(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+  await Promise.resolve();
+});
+
 describe("studio repair component regressions", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -53,14 +60,15 @@ describe("studio repair component regressions", () => {
     document.body.appendChild(host);
     const root = createRoot(host);
     act(() => { root.render(createElement(ProviderSettings)); });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await flush();
     expect(host.textContent).toContain("Unable to load provider settings");
     expect(host.textContent).toContain("Retry");
 
     const retry = Array.from(host.querySelectorAll("button")).find((b) => (b.textContent ?? "").includes("Retry"));
     expect(retry).not.toBeNull();
     act(() => { retry!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-    await act(async () => { gate.resolve(null); await gate.promise; await Promise.resolve(); await Promise.resolve(); });
+    gate.resolve(null);
+    await flush();
     expect(host.textContent).toContain("Configured · validation pending");
     expect(host.textContent).not.toContain("Unable to load provider settings");
 
@@ -74,7 +82,7 @@ describe("studio repair component regressions", () => {
     document.body.appendChild(host);
     const root = createRoot(host);
     act(() => { root.render(createElement(ProviderSettings)); });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await flush();
     expect(host.textContent).toContain("Unable to load provider settings");
     act(() => { root.unmount(); });
     host.remove();

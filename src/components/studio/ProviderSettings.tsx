@@ -57,7 +57,12 @@ export default function ProviderSettings() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  // Deferred one tick: an effect that fetches synchronously would set state during the
+  // first paint, and the retry button keeps its synchronous loading state.
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   const save = async (provider: "openai" | "google") => {
     setState({ provider, kind: "saving" }); setFeedback(null);

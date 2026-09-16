@@ -33,7 +33,7 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint --max-warnings 0
       - name: Unit tests
         run: pnpm test
       - name: Build

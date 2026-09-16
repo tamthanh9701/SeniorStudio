@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { LoaderCircle } from "lucide-react";
 import { createClient } from "@/supabase/client";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -22,12 +24,13 @@ export default function ResetPasswordPage() {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        window.location.assign("/login?error=session_expired");
+        router.replace("/login?error=session_expired");
+        router.refresh();
         return;
       }
       setChecking(false);
     });
-  }, []);
+  }, [router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -81,7 +84,7 @@ export default function ResetPasswordPage() {
             <Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required disabled={submitting || updated} autoComplete="new-password" />
           </div>
           {updated ? (
-            <Button type="button" onClick={() => window.location.assign("/projects")} className="w-full">
+            <Button type="button" onClick={() => { router.replace("/projects"); router.refresh(); }} className="w-full">
               Continue to projects <ArrowRight className="ml-1 inline size-4" />
             </Button>
           ) : (

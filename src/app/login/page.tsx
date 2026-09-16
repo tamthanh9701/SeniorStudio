@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/supabase/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 function LoginInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialError = searchParams.get("error");
   const [email, setEmail] = useState("");
@@ -38,7 +39,8 @@ function LoginInner() {
           setMessage({ kind: "error", text: error.message });
           return;
         }
-        window.location.assign("/projects");
+        router.replace("/projects");
+        router.refresh();
         return;
       }
 

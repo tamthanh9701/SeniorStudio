@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Paintbrush, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -109,7 +110,7 @@ export default function ToolInspector({ tool, setTool, models, settings, setSett
           <Label className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">Selected asset</Label>
           {selectedAsset?.signedUrl ? (
             <Card className="gap-0 overflow-hidden p-0">
-              <img src={selectedAsset.signedUrl} alt={selectedAsset.name} className="aspect-square w-full object-cover" />
+              <Image src={selectedAsset.signedUrl} alt={selectedAsset.name} width={512} height={512} sizes="280px" className="aspect-square w-full object-cover" />
               <CardContent className="p-3">
                 <p className="truncate text-sm font-medium">{selectedAsset.name}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{selectedAsset.width && selectedAsset.height ? `${selectedAsset.width} × ${selectedAsset.height}` : "Current version"}</p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { LoaderCircle, Paintbrush } from "lucide-react";
 import MaskEditor from "@/components/editor/MaskEditor";
@@ -77,19 +78,23 @@ export default function StyleInpaintPage() {
       .finally(() => { if (mountedRef.current) setLoading(false); });
   }, [params.assetId, params.styleId]);
 
+  const terminal = job ? isTerminalStatus(job.status) : false;
+  // Both terminal outcomes are derived during render, so the effect only navigates.
+  const results = job && job.status === "succeeded" && Array.isArray(job.output?.results) ? job.output.results : [];
+  const firstResult = results[0];
+  const candidateVersionId = job && job.status === "succeeded"
+    ? (firstResult && typeof firstResult === "object" && "version_id" in firstResult && typeof firstResult.version_id === "string" ? firstResult.version_id : null) ?? job.version_id ?? null
+    : null;
+  const jobError = job?.status === "failed"
+    ? job.error_message || "The edit failed. Your mask and prompt are unchanged."
+    : job?.status === "succeeded" && !candidateVersionId
+      ? "The edit finished but no candidate version was recorded."
+      : null;
+
   useEffect(() => {
-    if (!job || !isTerminalStatus(job.status)) return;
-    if (job.status === "succeeded") {
-      const results = Array.isArray(job.output?.results) ? job.output.results : [];
-      const first = results[0];
-      const resultVersionId = first && typeof first === "object" && "version_id" in first && typeof first.version_id === "string" ? first.version_id : null;
-      const candidateVersionId = resultVersionId ?? job.version_id ?? null;
-      if (!candidateVersionId) { setError("The edit finished but no candidate version was recorded."); return; }
-      router.push(`/style/${params.styleId}/assets/${params.assetId}?version=${candidateVersionId}&review=1`);
-      return;
-    }
-    if (job.status === "failed") setError(job.error_message || "The edit failed. Your mask and prompt are unchanged.");
-  }, [job, params.assetId, params.styleId, router]);
+    if (!job || job.status !== "succeeded" || !candidateVersionId) return;
+    router.push(`/style/${params.styleId}/assets/${params.assetId}?version=${candidateVersionId}&review=1`);
+  }, [job, candidateVersionId, params.assetId, params.styleId, router]);
 
   const preview = async (useCurrentStyle: boolean) => {
     if (!maskPng || !version || !prompt.trim() || busyRef.current) return;
@@ -180,7 +185,6 @@ export default function StyleInpaintPage() {
     setErrorCode(null);
   };
 
-  const terminal = job ? isTerminalStatus(job.status) : false;
   const jobRunning = job !== null && !terminal;
   const planReferenceIds = readyPreview?.plan.referenceIds ?? null;
   const thumbnails = planReferenceIds
@@ -227,7 +231,7 @@ export default function StyleInpaintPage() {
               {thumbnails.map((reference) => (
                 <li key={reference.id} className="size-14 overflow-hidden rounded-lg border border-border bg-accent">
                   {reference.signed_url
-                    ? <img src={reference.signed_url} alt="Style reference" className="size-full object-cover" />
+                    ? <Image src={reference.signed_url} alt="Style reference" width={64} height={64} sizes="64px" className="size-full object-cover" />
                     : <span className="flex size-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground">No preview</span>}
                 </li>
               ))}
@@ -274,7 +278,7 @@ export default function StyleInpaintPage() {
                 </AlertDescription>
               </Alert>
             )}
-            {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+            {(error ?? jobError) && <p role="alert" className="text-xs text-destructive">{error ?? jobError}</p>}
             <Button
               type="button"
               onClick={() => { if (readyPreview) void submit(); else void preview(adoptCurrentStyle); }}

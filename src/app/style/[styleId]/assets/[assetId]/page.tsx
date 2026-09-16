@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
+import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 import { Download, GitCompare, Info, Paintbrush, Sparkles } from "lucide-react";
 import { createClient } from "@/supabase/server";
@@ -197,7 +198,7 @@ export default async function StyleAssetDetailPage({
               height={selected.height || 600}
             />
           ) : selected?.signedUrl ? (
-            <img src={selected.signedUrl} alt={asset.name} className="mx-auto max-h-[70vh] max-w-full rounded-lg object-contain" />
+            <Image src={selected.signedUrl} alt={asset.name} width={selected.width || 800} height={selected.height || 600} unoptimized className="mx-auto max-h-[70vh] max-w-full rounded-lg object-contain" />
           ) : (
             <div className="flex h-64 items-center justify-center rounded-lg border border-border text-muted-foreground">Preview unavailable</div>
           )}

@@ -289,7 +289,14 @@ export default function StyleWorkspace({
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  useEffect(() => { setNameDraft(detail?.name ?? ""); }, [detail?.name]);
+  // Adjusting during render keeps the server's rename in the same commit, while a
+  // draft the user is typing (detail.name unchanged) is left alone.
+  const [nameSource, setNameSource] = useState(detail?.name ?? "");
+  if ((detail?.name ?? "") !== nameSource) {
+    setNameSource(detail?.name ?? "");
+    setNameDraft(detail?.name ?? "");
+  }
+
 
   const references = useMemo(() => detail?.references ?? [], [detail?.references]);
   const setupState: StyleSetupState = detail ? getStyleSetupState(detail, references.length) : "references";
@@ -815,7 +822,7 @@ export default function StyleWorkspace({
             <li key={reference.id}>
               <Card className="gap-0 overflow-hidden p-0">
                 {reference.signed_url
-                  ? <img src={reference.signed_url} alt="Style reference" className="aspect-square w-full object-cover" />
+                  ? <Image src={reference.signed_url} alt="Style reference" width={512} height={512} sizes="(min-width:1024px) 22vw, (min-width:640px) 30vw, 45vw" className="aspect-square w-full object-cover" />
                   : <span className="flex aspect-square items-center justify-center px-2 text-center text-xs text-muted-foreground">Preview unavailable</span>}
                 <div className="flex items-center justify-between gap-2 p-2">
                   <span className="truncate text-[11px] text-muted-foreground">

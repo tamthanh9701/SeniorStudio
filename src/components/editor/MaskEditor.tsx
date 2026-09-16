@@ -104,12 +104,15 @@ export default function MaskEditor({
   const dragRef = useRef<Drag | null>(null);
   const draftRef = useRef<MaskStroke | null>(null);
   const onMaskChangeRef = useRef(onMaskChange);
+  const loadSequence = useRef(0);
   useEffect(() => { onMaskChangeRef.current = onMaskChange; });
 
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [imageFailed, setImageFailed] = useState(false);
+  // The source is tracked with its image so a new url cannot keep rendering the old
+  // one; the load itself stays in the effect below, which only writes after it settles.
+  const [load, setLoad] = useState<{ src: string; image: HTMLImageElement | null; failed: boolean }>({ src: imageUrl, image: null, failed: false });
+  if (load.src !== imageUrl) setLoad({ src: imageUrl, image: null, failed: false });
   const [attempt, setAttempt] = useState(0);
-  const [accent, setAccent] = useState(FALLBACK_ACCENT);
+  const [accent] = useState(accentFromTheme);
   const [brushSize, setBrushSize] = useState(40);
   const [tool, setTool] = useState<Tool>("brush");
   const [strokes, setStrokes] = useState<MaskStroke[]>([]);
@@ -121,15 +124,12 @@ export default function MaskEditor({
   const [viewport, setViewport] = useState({ width: Math.min(width, 760), height: Math.min(height, 760) });
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
 
-  useEffect(() => { setAccent(accentFromTheme()); }, []);
-
   useEffect(() => {
-    setImage(null);
-    setImageFailed(false);
+    const sequence = ++loadSequence.current;
     const loaded = new window.Image();
     loaded.crossOrigin = "anonymous";
-    loaded.onload = () => { setImage(loaded); setImageFailed(false); };
-    loaded.onerror = () => { setImage(null); setImageFailed(true); };
+    loaded.onload = () => { if (loadSequence.current === sequence) setLoad((current) => ({ ...current, image: loaded, failed: false })); };
+    loaded.onerror = () => { if (loadSequence.current === sequence) setLoad((current) => ({ ...current, image: null, failed: true })); };
     loaded.src = imageUrl;
     return () => { loaded.onload = null; loaded.onerror = null; };
   }, [attempt, imageUrl]);
@@ -156,6 +156,7 @@ export default function MaskEditor({
     const tint = document.createElement("canvas");
     tint.width = width;
     tint.height = height;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the overlay is an allocated canvas, it cannot be computed during render
     setOverlay(editable && paintOverlay(tint, mask, accent) ? tint : null);
     onMaskChangeRef.current(editable ? mask.toDataURL("image/png") : null);
   }, [accent, height, inverted, strokes, width]);
@@ -198,14 +199,14 @@ export default function MaskEditor({
       dragRef.current = { mode: "pan", start: { x: position.x, y: position.y }, origin: { x: offset.x, y: offset.y } };
       return;
     }
-    if (!image) return;
+    if (!load.image) return;
     const point = { x: (position.x - offset.x) / stageScale, y: (position.y - offset.y) / stageScale };
     dragRef.current = { mode: "stroke", start: point, origin: point };
     setRedoStrokes([]);
     const stroke: MaskStroke = { points: [point.x, point.y], tool: tool === "eraser" ? "eraser" : "brush", width: brushSize };
     draftRef.current = stroke;
     setDraft(stroke);
-  }, [brushSize, image, offset.x, offset.y, stageScale, tool]);
+  }, [brushSize, load.image, offset.x, offset.y, stageScale, tool]);
 
   const move = useCallback((event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     const stage = event.target?.getStage?.() ?? null;
@@ -292,12 +293,12 @@ export default function MaskEditor({
       </div>
     </div>
     <div ref={stageAreaRef} className="checker-stage relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden p-3">
-      {imageFailed ? (
+      {load.failed ? (
         <Card role="alert" className="max-w-sm items-center gap-3 p-6 text-center">
           <p className="text-sm text-foreground">The image could not be loaded, so the edit area cannot be painted.</p>
-          <Button type="button" variant="outline" onClick={() => setAttempt((value) => value + 1)}><RefreshCw className="size-4" />Retry</Button>
+          <Button type="button" variant="outline" onClick={() => { setLoad((current) => ({ ...current, image: null, failed: false })); setAttempt((value) => value + 1); }}><RefreshCw className="size-4" />Retry</Button>
         </Card>
-      ) : !image ? (
+      ) : !load.image ? (
         <p role="status" className="flex items-center gap-2 text-sm text-stage-muted"><LoaderCircle className="size-4 animate-spin" />Loading image…</p>
       ) : (
         <Stage
@@ -313,7 +314,7 @@ export default function MaskEditor({
           onTouchEnd={end}
         >
           <Layer x={offset.x} y={offset.y} scaleX={stageScale} scaleY={stageScale}>
-            <KonvaImage image={image} width={width} height={height} listening={false} />
+            <KonvaImage image={load.image} width={width} height={height} listening={false} />
             {overlay && <KonvaImage image={overlay} width={width} height={height} opacity={0.45} listening={false} />}
             {draft && (draft.points.length <= 2
               ? <Circle x={draft.points[0]} y={draft.points[1]} radius={draft.width / 2} stroke={accent} strokeWidth={2 / stageScale} dash={[6 / stageScale, 6 / stageScale]} opacity={0.9} listening={false} />

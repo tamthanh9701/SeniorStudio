@@ -7,9 +7,9 @@ type StyleScope = { module: "style"; styleId: string };
 type ProjectScope = { module: "projects"; projectId: string };
 type ModuleScope = StyleScope | ProjectScope;
 
-function endpointFor(scope: ModuleScope) {
-  if (scope.module === "style") return `/api/styles/${scope.styleId}/ai-jobs?limit=50`;
-  return `/api/projects/${scope.projectId}/ai-jobs?limit=50`;
+function endpointFor(moduleName: ModuleScope["module"], id: string) {
+  if (moduleName === "style") return `/api/styles/${id}/ai-jobs?limit=50`;
+  return `/api/projects/${id}/ai-jobs?limit=50`;
 }
 
 
@@ -65,17 +65,26 @@ export function mergeModuleJob(items: ProjectJobFeedItem[], job: AiJob) {
 }
 
 export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedItem[]) {
-  const scopeKey = scope.module === "style" ? scope.styleId : scope.projectId;
+  const moduleName = scope.module;
+  const scopeId = moduleName === "style" ? scope.styleId : scope.projectId;
+  const scopeKey = `${moduleName}:${scopeId}`;
+  const endpoint = useMemo(() => endpointFor(moduleName, scopeId), [moduleName, scopeId]);
   const [items, setItems] = useState(() => reconcileJobFeed([], initialItems));
+  const [loadedScope, setLoadedScope] = useState(scopeKey);
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "offline">("idle");
   const terminalRefreshes = useRef(new Set<string>());
   const previousStatuses = useRef(new Map(initialItems.map((item) => [item.job.id, item.job.status])));
   const refreshSequence = useRef(0);
+  // Adjusting during render keeps the new scope's snapshot in the same commit; an
+  // effect would paint the previous scope's jobs first.
+  if (loadedScope !== scopeKey) {
+    setLoadedScope(scopeKey);
+    setItems(reconcileJobFeed([], initialItems));
+  }
   useEffect(() => {
     refreshSequence.current += 1;
     terminalRefreshes.current = new Set();
     previousStatuses.current = new Map();
-    setItems(reconcileJobFeed([], initialItems));
   }, [scopeKey]);
 
   const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}): Promise<boolean> => {
@@ -84,7 +93,7 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
     // "Syncing job status…" notice on every tick.
     if (!quiet) setSyncState("syncing");
     try {
-      const response = await fetch(endpointFor(scope), { cache: "no-store" });
+      const response = await fetch(endpoint, { cache: "no-store" });
       // Superseded by a newer request: its data is no newer, and that is not a failure.
       if (sequence !== refreshSequence.current) return false;
       if (!response.ok) { setSyncState("offline"); return false; }
@@ -96,7 +105,7 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
       setSyncState("idle");
       return true;
     } catch { setSyncState("offline"); return false; }
-  }, [scopeKey]);
+  }, [endpoint]);
 
   const hasActiveJobs = useMemo(() => items.some((item) => !isTerminalStatus(item.job.status)), [items]);
   const hasUnhydratedJobs = useMemo(
@@ -111,7 +120,6 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
     // is cookie-authenticated, and the workspace policy hides every ai_jobs row, so
     // the channel reported SUBSCRIBED while never delivering an event - one idle
     // socket per open tab.
-    void refresh({ quiet: true });
     // The next poll waits for this one to settle.  A fixed interval overlaps itself on a
     // slow server (2.4-2.9s here), and a superseded response is discarded, so the feed
     // would never advance on exactly the deployments that need it most.

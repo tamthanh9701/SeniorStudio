@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Download, ExternalLink, Focus, MoreHorizontal, Scan, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ export default function AssetCanvas({ assets, selectedIndex, onSelect, projectId
         )}
         {selected?.signedUrl ? (
           <div className="flex h-full min-h-[300px] items-center justify-center">
-            <img src={selected.signedUrl} alt={selected.name} className={actualSize ? "max-w-none" : "max-h-full max-w-full object-contain"} />
+            <Image src={selected.signedUrl} alt={selected.name} width={selected.width || 1024} height={selected.height || 1024} unoptimized className={actualSize ? "max-w-none" : "max-h-full max-w-full object-contain"} />
           </div>
         ) : !selected && (
           <button onClick={onEmptyFocus} className="flex h-full min-h-[340px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--stage-border)] text-center">
@@ -103,7 +104,7 @@ export default function AssetCanvas({ assets, selectedIndex, onSelect, projectId
           <div className="flex min-w-max gap-2">
             {assets.map((asset, index) => (
               <Button key={`${asset.id}-${asset.signedUrl}`} variant="ghost" size="icon" onClick={() => onSelect(index)} aria-label={`Select ${asset.name}`} className={cn("size-16 overflow-hidden rounded-xl border-2 p-0 sm:size-20", index === selectedIndex ? "border-primary" : "border-transparent")}>
-                {asset.signedUrl ? <img src={asset.signedUrl} alt="" className="size-16 object-cover sm:size-20" /> : <span className="flex size-16 items-center justify-center bg-accent text-xs text-muted-foreground sm:size-20">Empty</span>}
+                {asset.signedUrl ? <Image src={asset.signedUrl} alt="" width={64} height={64} sizes="80px" className="size-16 object-cover sm:size-20" /> : <span className="flex size-16 items-center justify-center bg-accent text-xs text-muted-foreground sm:size-20">Empty</span>}
               </Button>
             ))}
             {Array.from({ length: loadingCount }, (_, index) => <Skeleton key={`loading-${index}`} aria-hidden className="size-16 rounded-xl sm:size-20" />)}

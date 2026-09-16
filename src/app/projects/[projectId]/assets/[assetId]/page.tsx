@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 import { Download, Paintbrush } from "lucide-react";
 import { createClient } from "@/supabase/server";
@@ -57,7 +58,7 @@ export default async function AssetDetailPage({
         {currentVersion?.signedUrl && parentVersion?.signedUrl ? (
           <ComparisonSlider beforeUrl={parentVersion.signedUrl} afterUrl={currentVersion.signedUrl} width={currentVersion.width || 800} height={currentVersion.height || 600} />
         ) : currentVersion?.signedUrl ? (
-          <img src={currentVersion.signedUrl} alt={asset.name} className="mx-auto max-h-full max-w-full rounded-lg object-contain" />
+          <Image src={currentVersion.signedUrl} alt={asset.name} width={currentVersion.width || 800} height={currentVersion.height || 600} unoptimized className="mx-auto max-h-full max-w-full rounded-lg object-contain" />
         ) : (
           <div className="flex h-full items-center justify-center text-stage-muted">No image available</div>
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, LoaderCircle, Plus, X } from "lucide-react";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -99,9 +100,13 @@ export default function StyleGroupComposer({
     setPreparing(value);
   };
 
-  useEffect(() => {
+  // Adjusting during render keeps a new initial prompt in the same commit, and the
+  // user's own edits (initialPrompt unchanged) are never overwritten.
+  const [seenInitialPrompt, setSeenInitialPrompt] = useState(initialPrompt);
+  if (initialPrompt !== seenInitialPrompt) {
+    setSeenInitialPrompt(initialPrompt);
     if (initialPrompt) setPrompt(initialPrompt);
-  }, [initialPrompt]);
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -332,7 +337,7 @@ export default function StyleGroupComposer({
             {references.map((reference) => (
               <li key={reference.id} className="size-16 overflow-hidden rounded-lg border border-border bg-accent">
                 {reference.signed_url
-                  ? <img src={reference.signed_url} alt="Style reference" className="h-full w-full object-cover" />
+                  ? <Image src={reference.signed_url} alt="Style reference" width={64} height={64} sizes="64px" className="h-full w-full object-cover" />
                   : <span className="flex h-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground">Preview unavailable</span>}
               </li>
             ))}
@@ -343,7 +348,7 @@ export default function StyleGroupComposer({
               <ul className="flex flex-wrap gap-2">
                 {libraryRefs.map((reference) => (
                   <li key={reference.id} className="flex items-center gap-2 rounded-lg border border-border bg-accent py-1 pl-1 pr-2">
-                    <img src={reference.signedUrl} alt={`${reference.styleName} reference`} className="size-10 rounded object-cover" />
+                    <Image src={reference.signedUrl} alt={`${reference.styleName} reference`} width={64} height={64} sizes="40px" className="size-10 rounded object-cover" />
                     <span className="max-w-32 truncate text-xs text-foreground">{reference.styleName}</span>
                     <Button
                       type="button"
@@ -467,7 +472,7 @@ export default function StyleGroupComposer({
                         onClick={() => toggleLibraryReference(option)}
                         className={cn("block w-full overflow-hidden rounded-lg border text-left transition", selected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/60", atCap && "cursor-not-allowed opacity-50 hover:border-border")}
                       >
-                        <img src={option.signedUrl} alt="" className="aspect-square w-full object-cover" />
+                        <Image src={option.signedUrl} alt="" width={512} height={512} sizes="(min-width:768px) 160px, 45vw" className="aspect-square w-full object-cover" />
                         <span className="block truncate px-2 py-1 text-xs text-muted-foreground">{option.styleName}</span>
                       </button>
                     </li>

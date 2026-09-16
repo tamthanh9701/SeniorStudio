@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Activity, LogOut, Mail } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
   const [heartbeat, setHeartbeat] = useState<string | null>(initialHeartbeat);
   const [now, setNow] = useState(() => Date.now());
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const router = useRouter();
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -31,7 +33,7 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
     return () => window.clearInterval(timer);
   }, []);
 
-  const signOut = async () => { await createClient().auth.signOut(); window.location.assign("/login"); };
+  const signOut = async () => { await createClient().auth.signOut(); router.replace("/login"); router.refresh(); };
 
   const refresh = useCallback(async () => {
     if (busyRef.current) return;
@@ -55,7 +57,11 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  // Deferred one tick, so the first poll does not set state during the first paint.
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refresh(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
   useEffect(() => { const timer = window.setInterval(() => { void refresh(); }, 30_000); return () => window.clearInterval(timer); }, [refresh]);
 
   const heartbeatAge = heartbeat ? now - Date.parse(heartbeat) : null;

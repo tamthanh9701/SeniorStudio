@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { readTheme, subscribeTheme, writeTheme, type Theme } from "@/lib/theme/theme-store";
 
-type Theme = "light" | "dark" | "system";
 type ThemeContextValue = { theme: Theme; resolvedTheme: "light" | "dark"; setTheme: (theme: Theme) => void };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -11,47 +11,35 @@ function resolve(theme: Theme): "light" | "dark" {
   if (theme !== "system") return theme;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
+
 export default function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("system");
+  // The stored preference is external state: reading it through useSyncExternalStore
+  // keeps the server render ("system") and every subscriber in step, including a
+  // write from another tab.
+  const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "system" as Theme);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
 
-  const preferenceRef = useRef<Theme>(theme);
   useEffect(() => {
-    let stored: string | null = null;
-    try { stored = window.localStorage.getItem("seniorstudio-theme"); } catch { /* fall back to system */ }
-    const initial: Theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
-    preferenceRef.current = initial;
-    setThemeState(initial);
     const apply = (next: Theme) => {
       const resolved = resolve(next);
       document.documentElement.dataset.theme = resolved;
       setResolvedTheme(resolved);
     };
-    apply(initial);
+    apply(theme);
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onMediaChange = () => { if (preferenceRef.current === "system") apply("system"); };
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== "seniorstudio-theme") return;
-      const next: Theme = event.newValue === "light" || event.newValue === "dark" || event.newValue === "system" ? event.newValue : "system";
-      preferenceRef.current = next;
-      setThemeState(next);
-      apply(next);
-    };
+    const onMediaChange = () => { if (theme === "system") apply("system"); };
     media.addEventListener("change", onMediaChange);
-    window.addEventListener("storage", onStorage);
-    return () => { media.removeEventListener("change", onMediaChange); window.removeEventListener("storage", onStorage); };
-  }, []);
+    return () => media.removeEventListener("change", onMediaChange);
+  }, [theme]);
 
-  const setTheme = (next: Theme) => {
-    preferenceRef.current = next;
-    setThemeState(next);
-    try { window.localStorage.setItem("seniorstudio-theme", next); } catch { /* in-memory preference still applies */ }
+  const setTheme = useCallback((next: Theme) => {
+    writeTheme(next);
     const resolved = resolve(next);
     document.documentElement.dataset.theme = resolved;
     setResolvedTheme(resolved);
-  };
+  }, []);
 
-  const value = useMemo(() => ({ theme, resolvedTheme, setTheme }), [theme, resolvedTheme]);
+  const value = useMemo(() => ({ theme, resolvedTheme, setTheme }), [theme, resolvedTheme, setTheme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
