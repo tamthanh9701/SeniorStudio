@@ -107,14 +107,22 @@ dbSuite("runtime concurrency (database)", () => {
       expect(pidA.rows[0].pid).not.toBe(pidB.rows[0].pid);
 
       // This fixture must be committed before the race, so the production worker can
-      // see it too. When it wins, the race is retried on a fresh fixture instead of
-      // asserting on a row someone else already leased.
+      // see it too: it claims the three oldest queued rows every five seconds
+      // (api/internal/ai-worker) and the fixture is deliberately the oldest. When it
+      // wins, that fixture is failed as its lease owner - so it cannot sit submitting
+      // until the stale sweep reaches it - and the race is retried on a fresh one.
       for (let attempt = 1; ; attempt += 1) {
         const jobId = await insertJob({ createdAt: "1970-01-01T00:00:00+00" });
         const [claimedA, claimedB] = await Promise.all([claimOn(a, "race-a"), claimOn(b, "race-b")]);
         const row = (await admin.query("select status, attempt_count, lease_owner, lease_expires_at > now() as live from public.ai_jobs where id = $1", [jobId])).rows[0];
         const stolen = !claimedA.includes(jobId) && !claimedB.includes(jobId) && row.lease_owner !== null;
-        if (stolen && attempt < 3) continue;
+        if (stolen) {
+          // Best effort: the worker may have finished the job between the two reads.
+          await harness
+            .asService("select public.fail_ai_job($1, $2, 'PROBE_STOLEN', 'integration fixture leased by the production worker')", [jobId, row.lease_owner], { commit: true })
+            .catch(() => undefined);
+          if (attempt < 3) continue;
+        }
         expect(stolen, "the production worker claimed the fixture on every attempt").toBe(false);
 
         expect([claimedA, claimedB].filter((ids) => ids.length === 1)).toHaveLength(1);

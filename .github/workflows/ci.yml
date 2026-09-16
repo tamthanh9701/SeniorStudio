@@ -41,7 +41,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
       - name: Database behaviour suites
-        if: env.TEST_DATABASE_URL != ''
+        # Pushes to master only: these suites write and delete their own fixtures, so
+        # they run against a real database (see DEPLOYMENT.md) and never on a PR.
+        if: github.event_name == 'push' && env.TEST_DATABASE_URL != ''
         run: pnpm test:db
       - name: Build
         run: pnpm build

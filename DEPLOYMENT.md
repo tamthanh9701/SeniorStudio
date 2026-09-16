@@ -140,15 +140,20 @@ against whatever `TEST_DATABASE_URL` points at; every fixture is created and rem
 the suite, and the quota assertions own a throwaway workspace, so a run leaves
 `workspace_ai_usage` untouched.
 
-The same suites run in `ci.yml` on every push **when the repository has a
-`TEST_DATABASE_URL` secret** (the step is skipped without one). Set it to a staging
-database, not production.
+`ci.yml` runs the same suites on every **push to master** when the repository has a
+`TEST_DATABASE_URL` secret, and skips them without one (they never run on a pull
+request). The repository secret currently points at the production project, the only
+database this app has; the suites are hermetic - every fixture is created and removed by
+the suite, the quota assertions own a throwaway workspace, and a run leaves
+`workspace_ai_usage` untouched - but a staging project is the better target as soon as
+one exists (`gh secret set TEST_DATABASE_URL --body '<url>'`).
 
 One fixture is intentionally visible to the worker: the claim race must publish its job
-to race on it. The worker runs every five seconds and claims the oldest queued row, so a
-run gives each fixture a 1970 timestamp to be that row, and the race test detects the
-worker winning and re-inserts its fixture instead of asserting on a foreign lease. The
-remaining fixtures are built inside the transaction that claims them or carry
+to race on it. The worker runs every five seconds and claims the three oldest queued rows,
+so a run gives each fixture a 1970 timestamp to be that row, and the race test detects the
+worker winning, fails that fixture as its lease owner so it cannot sit `submitting` until
+the stale sweep, and races a fresh one instead of asserting on a foreign lease. Every
+other fixture is built inside the transaction that claims it or carries
 `attempt_count = 1`, which `claim_ai_jobs` refuses.
 
 ## Auth: token verification, and the legacy secret that is left
