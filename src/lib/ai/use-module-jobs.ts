@@ -23,6 +23,7 @@ function channelName(scope: ModuleScope) {
   return `project-jobs-${scope.projectId}`;
 }
 const STATUS_ORDER: Record<AiJob["status"], number> = { queued: 0, submitting: 1, processing: 2, persisting: 3, succeeded: 4, failed: 4, canceled: 4 };
+const POLL_INTERVAL_MS = 2000;
 
 function compareJobs(a: AiJob, b: AiJob) {
   const timestamp = Date.parse(a.updated_at) - Date.parse(b.updated_at);
@@ -93,7 +94,9 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
     if (!quiet) setSyncState("syncing");
     try {
       const response = await fetch(endpointFor(scope), { cache: "no-store" });
-      if (!response.ok || sequence !== refreshSequence.current) { setSyncState("offline"); return false; }
+      // Superseded by a newer request: its data is no newer, and that is not a failure.
+      if (sequence !== refreshSequence.current) return false;
+      if (!response.ok) { setSyncState("offline"); return false; }
       const body = await response.json();
       if (sequence !== refreshSequence.current) return false;
       const parsed = ProjectJobFeedItemSchema.array().safeParse(body.jobs);
@@ -119,7 +122,21 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
     // no event ever arrives.  Polling is therefore the delivery mechanism and the channel
     // only accelerates it, instead of the poll being a fallback for a dead socket.
     void refresh({ quiet: true });
-    const pollTimer = setInterval(() => { void refresh({ quiet: true }); }, 2000);
+    // The next poll waits for this one to settle.  A fixed interval overlaps itself on a
+    // slow server (2.4-2.9s here), and a superseded response is discarded, so the feed
+    // would never advance on exactly the deployments that need it most.
+    let pollTimer: number | null = null;
+    let closed = false;
+    const poll = async () => {
+      const startedAt = Date.now();
+      await refresh({ quiet: true });
+      if (closed) return;
+      // Keep the intended cadence when the server answers slower than it, but never let two
+      // requests overlap: a superseded response is discarded, so overlapping polls would
+      // leave a slow deployment updating nothing at all.
+      pollTimer = window.setTimeout(() => { void poll(); }, Math.max(500, POLL_INTERVAL_MS - (Date.now() - startedAt)));
+    };
+    pollTimer = window.setTimeout(() => { void poll(); }, 0);
     const channel = supabase.channel(channelName(scope))
       .on("postgres_changes", { event: "*", schema: "public", table: "ai_jobs", filter: realtimeFilter(scope) }, (payload) => {
         const parsed = AiJobSchema.safeParse(payload.new);
@@ -136,7 +153,8 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
       })
       .subscribe();
     return () => {
-      clearInterval(pollTimer);
+      closed = true;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
       void supabase.removeChannel(channel);
     };
   }, [hasActiveJobs, hasUnhydratedJobs, scopeKey, refresh]);
