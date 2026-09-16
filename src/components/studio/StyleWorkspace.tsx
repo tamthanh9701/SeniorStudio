@@ -80,7 +80,8 @@ type StyleDetail = {
   operability?: {
     score: number;
     grade: "production_ready" | "usable_with_warnings" | "not_ready";
-    checks: Array<{ id: string; label: string; status: string; detail: string }>;
+    /** Absent on rows written before the scorer recorded per-check detail. */
+    checks?: Array<{ id: string; label: string; status: string; detail: string }>;
   } | null;
   updated_at: string;
   references: StyleReferenceRow[];
@@ -976,7 +977,7 @@ export default function StyleWorkspace({
             {detail.operability ? (
               <ul className="space-y-1 text-xs text-muted-foreground">
                 <li className="text-foreground">{detail.operability.grade} · {detail.operability.score}/100</li>
-                {detail.operability.checks.map((check) => (
+                {(detail.operability.checks ?? []).map((check) => (
                   <li key={check.id}>{check.status}: {check.label} — {check.detail}</li>
                 ))}
               </ul>

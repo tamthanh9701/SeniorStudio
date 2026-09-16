@@ -219,6 +219,21 @@ describe("style workspace", () => {
     unmount(host, root);
   });
 
+  it("renders a style whose readiness diagnostics carry no per-check detail", async () => {
+    // Rows written before the scorer recorded checks have grade and score only;
+    // reading checks.map unguarded crashed the whole page (server error).
+    installFetch(async (url) => (url.includes("/assets") ? respond({ assets: [] }) : respond({ style: alertStyleRow({ operability: { grade: "production_ready", score: 95 } }) })));
+    const { host, root } = mount(createElement(StyleWorkspace, { styleId: STYLE_ID, initialTab: "style", models: MODELS, initialJobs: [] }));
+    await flush();
+
+    // Rendering the workspace at all is the regression: the row used to crash it.
+    expect(host.textContent).toContain("Clay Cats");
+    await clickButton(host, "Advanced");
+    expect(host.textContent).toContain("production_ready");
+    expect(host.textContent).toContain("95/100");
+    unmount(host, root);
+  });
+
   it("refuses files that are not PNG or JPEG before uploading", async () => {
     const calls = installFetch(async (url) => (url.includes("/assets") ? respond({ assets: [] }) : respond({ style: alertStyleRow() })));
     const { host, root } = mount(createElement(StyleWorkspace, { styleId: STYLE_ID, initialTab: "references", models: MODELS, initialJobs: [] }));
