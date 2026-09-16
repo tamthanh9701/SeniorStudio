@@ -119,7 +119,10 @@ export default function PromptImprovementDialog({
       const response = await fetch(`/api/styles/${styleId}/tune/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changes: proposal.changes.map((change) => ({ group: change.group, field: change.field, suggested_value: change.suggested_value })) }),
+        body: JSON.stringify({
+          changes: proposal.changes.map((change) => ({ group: change.group, field: change.field, suggested_value: change.suggested_value })),
+          baseUpdatedAt: proposal.baseUpdatedAt,
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -179,7 +182,7 @@ export default function PromptImprovementDialog({
           <DialogHeader>
             <DialogTitle>Improve the prompt for {styleName}</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              The generated image is compared with the style references, and the result is written into the style's own definition so every later generation uses it.
+              The generated image is compared with the style references, and the result is written into the style definition so every later generation uses it.
             </DialogDescription>
           </DialogHeader>
 

@@ -200,6 +200,7 @@ async function persistJobImages(
     if (error) {
       const resolver = await client.rpc("resolve_ai_job_persistence", { p_job_id: job.id, p_worker_id: workerId, p_version_ids: results.map((result) => result.version_id) });
       if (resolver.error) {
+        await recordPendingUploads(client, job.id, uploadedPaths);
         throw Object.assign(new Error(`PERSISTENCE_OUTCOME_UNKNOWN: ${resolver.error.message}`), { code: "PERSISTENCE_OUTCOME_UNKNOWN", preserveUploaded: true });
       }
       const state = resolver.data?.state as string | undefined;
@@ -212,6 +213,7 @@ async function persistJobImages(
         }
         throw new ProviderError("PERSISTENCE_FAILED", "Job persistence was aborted");
       }
+      await recordPendingUploads(client, job.id, uploadedPaths);
       throw Object.assign(new Error("PERSISTENCE_OUTCOME_UNKNOWN"), { code: "PERSISTENCE_OUTCOME_UNKNOWN", preserveUploaded: true });
     }
     return results;
@@ -223,6 +225,17 @@ async function persistJobImages(
     }
     throw error;
   }
+}
+
+/**
+ * Kept uploads are only recoverable if their location is recorded: the sweep in
+ * the worker cron uses this marker to decide between a committed job (objects
+ * belong to a version) and a lost one (objects are removed).
+ */
+async function recordPendingUploads(client: SupabaseClient, jobId: string, paths: string[]) {
+  if (paths.length === 0) return;
+  const { error } = await client.rpc("record_pending_uploads", { p_job_id: jobId, p_paths: paths });
+  if (error) console.error(`pending upload marker failed job=${jobId}: ${error.message}`);
 }
 
 type InputImage = { role: "source" | "reference"; id: string; bytes: Uint8Array; mimeType: string };
@@ -342,12 +355,14 @@ export async function processAiJob(client: SupabaseClient, rawJob: unknown, work
   const job = AiJobSchema.parse(rawJob);
   if (job.status === "succeeded" || job.status === "failed") return job.status;
   if (job.status === "canceled") return "canceled";
-  const provider = await providerForJob(job, client);
-  const apiKey = await getProviderApiKey(job.provider, { service: client, workspaceId: job.workspace_id });
-  if (!apiKey) {
-    return failJob(client, job, workerId, "PROVIDER_NOT_CONFIGURED", "No API key is configured for this provider");
-  }
   try {
+    // Inside the boundary: a credential or catalog failure after the claim must
+    // fail the job with its real cause, not leave it to the stale sweep.
+    const provider = await providerForJob(job, client);
+    const apiKey = await getProviderApiKey(job.provider, { service: client, workspaceId: job.workspace_id });
+    if (!apiKey) {
+      return failJob(client, job, workerId, "PROVIDER_NOT_CONFIGURED", "No API key is configured for this provider");
+    }
     const prepared = await prepareInputImages(client, job);
     const { inputImages, maskBytes } = prepared;
     const context = { client, job, apiKey, inputImages, maskBytes, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) };

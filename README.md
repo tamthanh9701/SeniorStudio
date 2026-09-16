@@ -32,7 +32,7 @@ cp .env.example .env.local
 
 Required variables:
 - `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` - Supabase anon key
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anon key
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key
 - `OWNER_EMAIL` - Your email for authentication
 - `AUTH0_ISSUER_BASE_URL` - Auth0 tenant URL
@@ -64,7 +64,7 @@ Open http://localhost:3000
 ### 1. Push to GitHub
 
 ```bash
-git push origin main
+git push origin master
 ```
 
 ### 2. Import to Vercel
@@ -93,20 +93,22 @@ src/
 ├── app/                    # Next.js App Router
 │   ├── api/
 │   │   ├── mcp/           # MCP server endpoint
-│   │   ├── generate/      # Image generation API
-│   │   ├── batch/         # Batch processing API
+│   │   ├── styles/        # Style groups, references, analysis, tuning
+│   │   ├── projects/      # Project image generation
+│   │   ├── internal/      # Worker entry point (cron authenticated)
 │   │   └── cron/          # Scheduled jobs
 │   ├── projects/          # Project management
 │   └── login/             # Authentication
 ├── components/
 │   └── editor/            # Konva-based editor components
 ├── lib/
-│   ├── assets/            # Asset service (ingest, signed URLs)
-│   ├── openai/            # OpenAI Responses API integration
+│   ├── ai/                # Providers, worker, execution plans, quota
+│   ├── assets/            # Asset service (ingest, signed URLs, ownership)
+│   ├── style/             # Prompt schema, analysis, generation packets
 │   ├── mcp/               # MCP server and tools
 │   └── ingredients/       # Prompt compilation
-└── db/
-    └── migrations/        # Supabase SQL migrations
+└── supabase/
+    └── migrations/        # Supabase SQL migrations (0001-....sql)
 ```
 
 ## MCP Integration
@@ -148,8 +150,8 @@ pnpm test
 # Build
 pnpm build
 
-# E2E tests
-pnpm exec playwright test
+# E2E tests (skipped unless pointed at a reachable deployment)
+# RUN_ONLINE_E2E=1 STAGING_APP_URL=https://your-deployment.example pnpm exec playwright test
 ```
 
 ## License

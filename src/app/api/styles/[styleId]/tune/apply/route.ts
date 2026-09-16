@@ -14,7 +14,13 @@ const ChangeSchema = z.object({
   field: z.string().min(1),
   suggested_value: z.unknown(),
 }).strict();
-const ApplySchema = z.object({ changes: z.array(ChangeSchema).min(1) }).strict();
+const ApplySchema = z
+  .object({
+    changes: z.array(ChangeSchema).min(1),
+    /** Revision the proposal was computed from; refused when the style moved on. */
+    baseUpdatedAt: z.string().min(1).optional(),
+  })
+  .strict();
 
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
@@ -27,6 +33,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
 
   const { data: style } = await supabase.from("styles").select("schema, updated_at").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+  // A proposal describes the style as it was when the review ran. Applying it
+  // after someone else changed the schema would silently discard those changes.
+  if (parsed.data.baseUpdatedAt && Date.parse(style.updated_at) !== Date.parse(parsed.data.baseUpdatedAt)) {
+    return NextResponse.json(
+      { error: { code: "STYLE_VERSION_CONFLICT", message: "The style changed since this proposal was created; review the image again" } },
+      { status: 409 },
+    );
+  }
   const patches: StyleSchemaPatch[] = parsed.data.changes.map((change) => ({
     op: "set",
     path: `${change.group}.${change.field}`,

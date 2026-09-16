@@ -153,6 +153,20 @@ describe("processAiJob", () => {
 });
 
 describe("failJob (via processAiJob error path)", () => {
+  it("fails the job when the credential lookup itself throws", async () => {
+    // Before the lookup moved inside the failure boundary, this rejected the
+    // whole worker run: the job stayed submitted until the stale sweep recorded
+    // a provider outcome that never happened.
+    mockGetProviderApiKey.mockRejectedValue(new Error("PROVIDER_KEY_LOOKUP_FAILED: connection refused"));
+    const { processAiJob } = await import("@/lib/ai/worker");
+    const client = supabaseClient();
+    const result = await processAiJob(client, makeJob(), WORKER_ID);
+    expect(result).toBe("failed");
+    const failCalls = mockRpc.mock.calls.filter((call) => call[0] === "fail_ai_job");
+    expect(failCalls.length).toBe(1);
+  });
+
+
   it("returns lease_lost when fail_ai_job RPC error contains LEASE_NOT_OWNED", async () => {
     mockGetProviderApiKey.mockResolvedValue("key");
     mockSubmit.mockRejectedValue(new Error("something bad"));
@@ -170,6 +184,27 @@ describe("failJob (via processAiJob error path)", () => {
 });
 
 describe("persistJobImages", () => {
+  it("records the kept uploads so a sweep can decide their fate", async () => {
+    mockGetProviderApiKey.mockResolvedValue("key");
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "renew_ai_job_lease") return { error: null };
+      if (name === "begin_ai_job_provider") return { error: null };
+      if (name === "set_ai_job_persisting") return { error: null };
+      if (name === "complete_ai_job_with_results") return { error: { message: "database insert failed" } };
+      if (name === "resolve_ai_job_persistence") return { data: null, error: { message: "rpc unavailable" } };
+      if (name === "fail_ai_job") return { error: null };
+      return { error: null };
+    });
+    const { processAiJob } = await import("@/lib/ai/worker");
+    const client = supabaseClient();
+    await processAiJob(client, makeJob(), WORKER_ID);
+    const marker = mockRpc.mock.calls.find((call) => call[0] === "record_pending_uploads");
+    expect(marker?.[1]).toMatchObject({ p_job_id: JOB_ID });
+    expect(Array.isArray(marker?.[1].p_paths)).toBe(true);
+    expect(marker?.[1].p_paths.length).toBeGreaterThan(0);
+  });
+
+
   it("keeps uploaded files when persistence outcome is unknown", async () => {
     mockGetProviderApiKey.mockResolvedValue("key");
     mockSubmit.mockResolvedValue({ state: "completed", images: [{ kind: "bytes", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), contentType: "image/png" }], requestId: null, metadata: {} });

@@ -1,7 +1,10 @@
 "use client";
 
-import { LoaderCircle, Scissors } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, LoaderCircle, Scissors } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { AiJobSchema, isTerminalStatus, type AiJob } from "@/db/ai-jobs";
+import { useAiJob } from "@/lib/ai/use-ai-job";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,6 +43,15 @@ export default function ExportTransparentDialog({
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<ExportPlan | null>(null);
   const [queued, setQueued] = useState(false);
+  const router = useRouter();
+  // The export is a real job: follow it so the new image shows up without a reload.
+  const { job, setJob } = useAiJob(null);
+
+  // The gallery and version history are server-rendered: refreshing on success is
+  // what makes the finished export visible without a manual reload.
+  useEffect(() => {
+    if (job?.status === "succeeded") router.refresh();
+  }, [job?.status, router]);
 
   const resolvePlan = async () => {
     setBusy("plan");
@@ -120,6 +132,8 @@ export default function ExportTransparentDialog({
         setError(`${body.error?.code ?? "ENQUEUE_FAILED"}: ${body.error?.message ?? "Unable to queue the export"}`);
         return;
       }
+      const parsed = AiJobSchema.safeParse(body.job);
+      if (parsed.success) setJob(parsed.data);
       setQueued(true);
     } catch {
       setError("NETWORK_ERROR: Unable to queue the export");
@@ -133,7 +147,7 @@ export default function ExportTransparentDialog({
       <Button
         type="button"
         variant="outline"
-        onClick={() => { setOpen(true); void resolvePlan(); }}
+        onClick={() => { setOpen(true); setJob(null); void resolvePlan(); }}
         aria-label="Export without background"
       >
         <Scissors className="size-4" aria-hidden />
@@ -183,9 +197,20 @@ export default function ExportTransparentDialog({
           )}
 
           {queued && (
-            <Alert variant="default" role="status">
-              <AlertDescription className="text-xs text-success">
-                Queued. {styleId ? "Keep the candidate version once it finishes to make it the current image." : "The finished image appears in this project."}
+            <Alert variant={job?.status === "failed" || job?.status === "canceled" ? "destructive" : "default"} role="status" aria-live="polite">
+              <AlertDescription className="text-xs">
+                {job === null || !isTerminalStatus(job.status) ? (
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <LoaderCircle className="size-3.5 animate-spin" aria-hidden /> Generating without a background…
+                  </span>
+                ) : job.status === "succeeded" ? (
+                  <span className="flex items-center gap-2 text-success">
+                    <CheckCircle2 className="size-3.5" aria-hidden />
+                    {styleId ? "Done. Keep the candidate version to make it this image's current version." : "Done. The image is in this project."}
+                  </span>
+                ) : (
+                  <span>{job.error_message || (job.status === "canceled" ? "Generation was canceled." : "Generation failed.")}</span>
+                )}
               </AlertDescription>
             </Alert>
           )}

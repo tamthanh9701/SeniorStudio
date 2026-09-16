@@ -132,6 +132,8 @@ export default function StyleGroupComposer({
     }
   };
 
+  const atLibraryCap = libraryRefs.length >= MAX_LIBRARY_REFERENCES;
+
   const toggleLibraryReference = (reference: LibraryReference) => {
     invalidate();
     setLibraryRefs((current) => {
@@ -442,14 +444,17 @@ export default function StyleGroupComposer({
                 .filter((option) => option.styleName.toLowerCase().includes(libraryQuery.trim().toLowerCase()))
                 .map((option) => {
                   const selected = libraryRefs.some((entry) => entry.id === option.id);
+                  // Selected tiles stay clickable so a slot can be freed again.
+                  const atCap = !selected && atLibraryCap;
                   return (
                     <li key={option.id}>
                       <button
                         type="button"
                         aria-pressed={selected}
+                        disabled={atCap}
                         aria-label={`${selected ? "Remove" : "Add"} ${option.styleName} reference`}
                         onClick={() => toggleLibraryReference(option)}
-                        className={cn("block w-full overflow-hidden rounded-lg border text-left transition", selected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/60")}
+                        className={cn("block w-full overflow-hidden rounded-lg border text-left transition", selected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/60", atCap && "cursor-not-allowed opacity-50 hover:border-border")}
                       >
                         <img src={option.signedUrl} alt="" className="aspect-square w-full object-cover" />
                         <span className="block truncate px-2 py-1 text-xs text-muted-foreground">{option.styleName}</span>
@@ -459,6 +464,9 @@ export default function StyleGroupComposer({
                 })}
             </ul>
           )}
+          <p role="status" aria-live="polite" className="min-h-4 text-xs text-destructive">
+            {atLibraryCap ? `Maximum ${MAX_LIBRARY_REFERENCES} selected` : ""}
+          </p>
           <DialogFooter>
             <span className="mr-auto text-xs text-muted-foreground">{libraryRefs.length} selected</span>
             <Button type="button" onClick={() => { setLibraryOpen(false); invalidate(); }}>Done</Button>

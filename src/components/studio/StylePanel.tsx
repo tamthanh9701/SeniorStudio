@@ -4,7 +4,7 @@ import { Image as ImageIcon, LoaderCircle, Plus } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StyleSetupState } from "@/lib/style/confirmed-definition";
 import { formatDate } from "@/lib/format/datetime";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -64,19 +64,25 @@ export default function StylePanel({ notice }: { notice?: string | null } = {}) 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft">("all");
   const [stylesLoading, setStylesLoading] = useState(true);
+  const stylesRequestRef = useRef(0);
 
   const loadStyles = useCallback(async (libraryId: string | null = null) => {
+    // Tab switches fire overlapping requests; only the newest may publish its
+    // list or clear the loading flag, otherwise an old response wins.
+    const request = (stylesRequestRef.current += 1);
     setStylesLoading(true);
     try {
       const query = libraryId === null ? "" : `?libraryId=${libraryId}`;
       const response = await fetch(`/api/styles${query}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load style groups");
       const body = await response.json();
+      if (request !== stylesRequestRef.current) return;
       setStyles(Array.isArray(body.styles) ? body.styles : []);
     } catch {
+      if (request !== stylesRequestRef.current) return;
       setFeedback({ kind: "error", text: "Unable to load style groups. Try again." });
     } finally {
-      setStylesLoading(false);
+      if (request === stylesRequestRef.current) setStylesLoading(false);
     }
   }, []);
 
