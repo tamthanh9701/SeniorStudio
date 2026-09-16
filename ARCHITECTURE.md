@@ -43,6 +43,12 @@ Project pages contain an asynchronous generation panel with model, prompt, compa
 
 The asset edit page keeps the mask and prompt visible while inpaint runs. It navigates to the asset only after the new child version succeeds. Version history displays provider, model, and operation metadata; comparison uses the child version's exact parent.
 
+Every image renders through `next/image`, and the lint gate (`pnpm lint --max-warnings 0`, run by CI) fails on a raw `<img>` in JSX. Large previews carry `unoptimized` because their signed URL rotates every hour; thumbnails keep the optimizer. The one `<img>` left in the sources is in `src/lib/mcp/editor.ts`, which returns an HTML document to the MCP widget rather than JSX.
+
+## Identity and token verification
+
+Route handlers and server components establish the caller through `getVerifiedUser()` (`src/lib/auth/verified-user.ts`), which reads verified JWT claims. `supabase.auth.getClaims()` verifies the signature locally against the project's JWKS; while a project signs symmetrically the same call falls back to a `getUser()` round trip and returns identical claims. Only the MCP resource server still calls `getUser(token)`, because it needs `email_confirmed_at`, which the claims do not carry.
+
 ## Optional MCP channel
 
 `/api/mcp`, Auth0 discovery, MCP project/asset tools, `save_generated_image`, `save_edited_image`, and the Apps SDK image saver remain available. MCP saves externally supplied image bytes through the same `ingestImage`/`ingestImageBytes` boundary. MCP does not enqueue provider jobs and does not automate ChatGPT Web.
