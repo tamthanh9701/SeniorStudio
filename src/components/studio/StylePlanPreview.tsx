@@ -1,4 +1,5 @@
 import type { ExecutionPlan } from "@/lib/ai/execution-plan";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -37,11 +38,14 @@ export function StylePlanPreview({ plan }: { plan: ExecutionPlan }) {
         </div>
         {plan.explanation && <p className="text-xs text-muted-foreground">{plan.explanation}</p>}
         {plan.warnings && plan.warnings.length > 0 && (
-          <ul className="space-y-1">
-            {plan.warnings.map((warning) => (
-              <li key={warning} role="alert" className="text-xs text-warning">{warning}</li>
-            ))}
-          </ul>
+          <Alert variant="default" role="alert" className="px-3 py-2">
+            <AlertTitle className="text-xs">Before you generate</AlertTitle>
+            <ul className="space-y-1">
+              {plan.warnings.map((warning) => (
+                <li key={warning} className="text-xs text-warning">{warning}</li>
+              ))}
+            </ul>
+          </Alert>
         )}
         {plan.compiledPrompt && (
           <Collapsible>

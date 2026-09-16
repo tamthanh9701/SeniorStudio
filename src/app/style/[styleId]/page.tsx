@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import StyleWorkspace, { type WorkspaceTab } from "@/components/studio/StyleWorkspace";
 import { createClient } from "@/supabase/server";
 import { getModelCatalog } from "@/lib/ai/models";
-import { AiJobSchema, type ProjectJobFeedItem } from "@/db/ai-jobs";
+import { AiJobSchema, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { getStyleSetupState, type StyleSetupState } from "@/lib/style/confirmed-definition";
 import { getStyleDetail, listStyleAssets } from "@/lib/style/style-assets";
@@ -40,21 +40,17 @@ export default async function StyleGroupPage({
     redirect(`/style/${styleId}?${preserved.toString()}`);
   }
 
-  const { data: workspaceMember } = await supabase
-    .from("workspace_members")
-    .select("workspace_id")
-    .eq("supabase_user_id", user.id)
-    .single();
-  const workspaceId = workspaceMember?.workspace_id;
-
-  // Style, references and the first gallery page are read here so the workspace
-  // can render real content on first paint instead of fetching it again.
-  const [style, assetsPage, { data: jobs }, modelCatalog] = await Promise.all([
+  // Style, references, the first gallery page and the workspace membership are
+  // read together: the workspace renders real content on first paint.
+  const [{ data: workspaceMember }, style, assetsPage, { data: jobs }] = await Promise.all([
+    supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single(),
     getStyleDetail(supabase, styleId),
     listStyleAssets(supabase, styleId, { limit: 50 }).catch(() => ({ assets: [], nextCursor: null })),
-    supabase.from("ai_jobs").select("*").eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(50),
-    workspaceId ? getModelCatalog(supabase, workspaceId) : Promise.resolve([]),
+    supabase.from("ai_jobs").select("*").eq("style_id", styleId).eq("module", "style").order("created_at", { ascending: false }).limit(FEED_LIMIT),
   ]);
+  const workspaceId = workspaceMember?.workspace_id;
+  // The catalog needs the workspace, so it follows the membership lookup.
+  const modelCatalog = workspaceId ? await getModelCatalog(supabase, workspaceId) : [];
 
   if (!style) notFound();
 

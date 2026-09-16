@@ -1,8 +1,12 @@
+import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { COST_MODE_OPTIONS, getReferenceLimit, type CostMode } from "@/lib/style/cost-modes";
 import { getModelCatalog, resolveUserWorkspaceId, type ModelCatalogEntry } from "@/lib/ai/models";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import { providerForModel, type SupportedModelId, type AiOperation, type SupportedQuality, type SupportedSize } from "@/db/ai-jobs";
+
+/** The style row carries only the library identity this check needs. */
+const StyleLibraryRowSchema = z.object({ library_id: z.string().uuid().nullable() });
 
 export type ExecutionPlanRequest = {
   operation: AiOperation;
@@ -20,6 +24,10 @@ export type ExecutionPlanRequest = {
   size: string;
   quality: string;
   referenceIds?: string[];
+  /** Reference ids borrowed from other styles of this style's library. */
+  libraryReferenceIds?: string[];
+  /** Ask the provider for a transparent background. */
+  background?: "transparent" | null;
   preserveRequestedModel?: boolean;
 };
 
@@ -84,6 +92,11 @@ export async function resolveImageExecutionPlan(
   const requestedEntry = catalog.find((entry) => entry.id === requested);
   if (!requestedEntry) throw new Error("INVALID_MODEL");
   if (!requestedEntry.operations.includes(request.operation)) throw new Error("INVALID_MODEL");
+  // Refused rather than silently ignored: an opaque image that the user asked to
+  // be transparent is worse than a clear failure.
+  if (request.background === "transparent" && requestedEntry.supportsTransparentBackground !== true) {
+    throw new Error("INVALID_REQUEST: this model cannot return a transparent background");
+  }
 
   const referenceLimit = Math.max(0, (requestedEntry.maxInputImages ?? 4) - (request.operation === "text_to_image" ? 0 : 1));
   const requestedReferenceIds = request.referenceIds ?? [];
@@ -96,6 +109,24 @@ export async function resolveImageExecutionPlan(
       .eq("style_id", request.styleId);
     if (error) throw new Error(`REFERENCE_LOOKUP_FAILED: ${error.message}`);
     const available = new Set((refs ?? []).map((ref) => ref.id as string));
+    // Borrowed references belong to a sibling style, so they are resolved
+    // against the library instead of the style's own rows. Checked here rather
+    // than trusted from the caller: this function is reachable directly.
+    const borrowed = request.libraryReferenceIds ?? [];
+    if (borrowed.length > 0) {
+      const { data: styleRow } = await client.from("styles").select("library_id").eq("id", request.styleId).maybeSingle();
+      const parsedStyleRow = StyleLibraryRowSchema.safeParse(styleRow);
+      if (!parsedStyleRow.success || parsedStyleRow.data.library_id === null) throw new Error("REFERENCE_NOT_FOUND");
+      const libraryId = parsedStyleRow.data.library_id;
+      const { data: libraryRows, error: libraryError } = await client
+        .from("style_references")
+        .select("id, styles!inner(library_id)")
+        .in("id", borrowed)
+        .eq("styles.library_id", libraryId)
+        .is("retired_at", null);
+      if (libraryError) throw new Error(`REFERENCE_LOOKUP_FAILED: ${libraryError.message}`);
+      for (const row of libraryRows ?? []) available.add(row.id as string);
+    }
     if (requestedReferenceIds.some((id) => !available.has(id))) throw new Error("REFERENCE_NOT_FOUND");
     if (requestedReferenceIds.length > referenceLimit) throw new Error(`REFERENCE_LIMIT_EXCEEDED: maximum ${referenceLimit} references for this model`);
     referenceIds = [...requestedReferenceIds];

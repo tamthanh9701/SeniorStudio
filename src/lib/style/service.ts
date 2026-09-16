@@ -11,6 +11,7 @@ import { lintAndFixStyleSchema } from "./linter";
 import { buildStyleInvariantContract, critiqueStyleSchema } from "./invariant-contract";
 import { buildStyleGenerationPrompt, type PromptSchema } from "./prompt-schema";
 import { preprocessReferences, type ReferenceInput, type ReferencePreprocessSummary } from "./reference-preprocess";
+import { downscaleReferences } from "./analysis-references";
 import { resolveStyleProviderConfig } from "./providers/config";
 import { GoogleStyleProvider } from "./providers/google";
 import { OpenAiStyleProvider } from "./providers/openai";
@@ -103,8 +104,10 @@ export async function analyzeStyleProfile(params: {
 
   const config = await resolveStyleProviderConfig({ user: client, service, workspaceId: style.workspace_id });
   const provider = buildProvider(config.provider, config.model, config.apiKey);
+  // The provider receives bounded copies; the report above was measured on the originals.
+  const analysisReferences = await downscaleReferences(inputs);
   const result = await provider.analyze({
-    references: inputs.map(({ buffer, mimeType }) => ({ buffer, mimeType })),
+    references: analysisReferences.map(({ buffer, mimeType }) => ({ buffer, mimeType })),
     systemPrompt: ANALYZE_STYLE_SYSTEM,
     userMessage: buildAnalysisUserMessage({
       styleName: style.name,

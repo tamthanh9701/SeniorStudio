@@ -8,6 +8,8 @@ import { getSignedUrl } from "@/lib/assets/service";
 import ComparisonSlider from "@/components/editor/ComparisonSlider";
 import VersionHistory from "@/components/editor/VersionHistory";
 import VersionReviewActions from "@/components/editor/VersionReviewActions";
+import PromptImprovementDialog from "@/components/style/PromptImprovementDialog";
+import ExportTransparentDialog from "@/components/style/ExportTransparentDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format/datetime";
@@ -158,6 +160,8 @@ export default async function StyleAssetDetailPage({
         <span className="text-muted-foreground">/</span>
         <h1 className="min-w-0 flex-1 truncate font-semibold">{asset.name}</h1>
         <div className="flex shrink-0 items-center gap-2">
+          {selected?.prompt && <PromptImprovementDialog styleId={styleId} versionId={selected.id} styleName={styleName} />}
+          {selected && <ExportTransparentDialog styleId={styleId} assetId={assetId} versionId={selected.id} />}
           {selected?.signedUrl && (
             <Button asChild variant="outline" size="icon">
               <a href={selected.signedUrl} download aria-label="Download this version">

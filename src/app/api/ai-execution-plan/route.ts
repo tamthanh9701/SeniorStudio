@@ -20,6 +20,8 @@ const PlanRequestSchema = z.object({
   editTarget: z.string().optional(),
   useCurrentStyle: z.boolean().optional(),
   referenceIds: z.array(z.string().uuid()).default([]),
+  libraryReferenceIds: z.array(z.string().uuid()).default([]),
+  background: z.literal("transparent").nullable().optional(),
   preserveRequestedModel: z.boolean().optional(),
   costMode: z.enum(["strict_style", "strict_1000", "balanced", "quality"]).default("strict_1000"),
   count: z.number().int().min(1).max(4).default(1),
@@ -43,10 +45,10 @@ export async function POST(request: Request) {
         const { data: asset } = await supabase.from("assets").select("id, style_id").eq("id", parsed.data.sourceAssetId).eq("style_id", parsed.data.styleId).single();
         const { data: source } = await supabase.from("asset_versions").select("id, prompt, style_generation").eq("id", parsed.data.sourceVersionId).eq("asset_id", parsed.data.sourceAssetId).single();
         if (!asset || !source) throw new Error("VERSION_CONFLICT");
-        const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, sourceVersionId: parsed.data.sourceVersionId, sourceAssetId: parsed.data.sourceAssetId, sourcePacket: source.style_generation, sourceOriginalPrompt: source.prompt, maskId: parsed.data.maskId });
+        const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, libraryReferenceIds: parsed.data.libraryReferenceIds, sourceVersionId: parsed.data.sourceVersionId, sourceAssetId: parsed.data.sourceAssetId, sourcePacket: source.style_generation, sourceOriginalPrompt: source.prompt, maskId: parsed.data.maskId });
         return NextResponse.json({ plan: result.plan });
       }
-      const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, sourceAssetId: null });
+      const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, libraryReferenceIds: parsed.data.libraryReferenceIds, sourceAssetId: null });
       return NextResponse.json({ plan: result.plan });
     }
     const workspaceId = await resolveUserWorkspaceId(supabase, user.id);

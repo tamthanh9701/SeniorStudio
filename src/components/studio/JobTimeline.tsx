@@ -1,7 +1,8 @@
 "use client";
 
 import { AlertTriangle, Check, LoaderCircle, RotateCcw, Square } from "lucide-react";
-import { useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type { AiJob, AiJobStatus, ProjectJobFeedItem } from "@/db/ai-jobs";
 import { JOB_STATUS_LABELS, jobErrorMessage } from "@/lib/ai/presentation";
-import { formatTime } from "@/lib/format/datetime";
+import { formatDate, formatTime, vnDayKey, TIME_ZONE_LABEL } from "@/lib/format/datetime";
 
 const ACTIVE_STEPS: readonly AiJobStatus[] = ["queued", "submitting", "processing", "persisting", "succeeded"];
 const TERMINAL_STATUSES: readonly AiJobStatus[] = ["succeeded", "failed", "canceled"];
@@ -41,9 +42,41 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
   onCancel: (job: AiJob) => void;
   onSelectResult: (result: { url: string; assetId?: string }) => void;
 }) {
+  // Resolved after mount so the server and the client agree on "today" before
+  // the first paint; until then the bands show the date alone.
+  const [todayKey, setTodayKey] = useState<string | null>(null);
+  useEffect(() => setTodayKey(vnDayKey(Date.now())), []);
+
+  // Jobs arrive newest first, so consecutive equal day keys are one band.
+  const days = useMemo(() => {
+    const groups: Array<{ key: string; createdAt: string; succeeded: number; failed: number; running: number; items: ProjectJobFeedItem[] }> = [];
+    for (const item of items) {
+      const key = vnDayKey(item.job.created_at) ?? "unknown";
+      let group = groups[groups.length - 1];
+      if (!group || group.key !== key) {
+        group = { key, createdAt: item.job.created_at, succeeded: 0, failed: 0, running: 0, items: [] };
+        groups.push(group);
+      }
+      if (item.job.status === "succeeded") group.succeeded += 1;
+      else if (item.job.status === "failed" || item.job.status === "canceled") group.failed += 1;
+      else group.running += 1;
+      group.items.push(item);
+    }
+    return groups;
+  }, [items]);
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-8 sm:px-6">
-      {items.map(({ job, result_urls }) => {
+      {days.map((day) => (
+        <section key={day.key} className="space-y-8" aria-label={formatDate(day.createdAt) ?? day.key}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-2">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground">
+              {day.key === todayKey ? `Hôm nay · ${formatDate(day.createdAt)}` : formatDate(day.createdAt)}
+              <span className="ml-2 font-normal">{TIME_ZONE_LABEL}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">{day.succeeded} done · {day.failed} failed · {day.running} running</p>
+          </div>
+          {day.items.map(({ job, result_urls }) => {
         const running = !TERMINAL_STATUSES.includes(job.status);
         const stepIndex = ACTIVE_STEPS.indexOf(job.status);
         const progress = stepIndex < 0 ? 0 : Math.round(((stepIndex + 1) / ACTIVE_STEPS.length) * 100);
@@ -74,7 +107,7 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
                   <div className={cn("mt-4 grid gap-3", result_urls.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
                     {result_urls.map((url, index) => (
                       <button key={url} aria-label={`Open generated result ${index + 1}`} onClick={() => onSelectResult({ url, assetId: results[index]?.asset_id })} className="group relative min-h-0 overflow-hidden rounded-xl border border-border bg-black">
-                        <img src={url} alt={`Generated result ${index + 1}`} className="aspect-square h-full w-full object-cover transition group-hover:opacity-90" />
+                        <Image src={url} alt={`Generated result ${index + 1}`} width={512} height={512} sizes={result_urls.length > 1 ? "(min-width:640px) 320px, 45vw" : "(min-width:768px) 640px, 90vw"} className="aspect-square h-full w-full object-cover transition group-hover:opacity-90" />
                         <span className="absolute bottom-2 right-2 flex size-8 items-center justify-center rounded-lg bg-black/60 text-white">
                           <Check className="size-4" />
                         </span>
@@ -94,6 +127,8 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
           </article>
         );
       })}
+        </section>
+      ))}
     </div>
   );
 }

@@ -223,7 +223,14 @@ export const StyleGenerationPacketSchema = z.object({
   size: SupportedSizeSchema,
   quality: SupportedQualitySchema,
   count: GenerationCountSchema,
-  metadata: z.object({ style_provenance: z.enum(["current_style_fallback"]).optional() }).optional(),
+  background: z.literal("transparent").nullable().optional(),
+  metadata: z
+    .object({
+      style_provenance: z.enum(["current_style_fallback"]).optional(),
+      /** References borrowed from other styles in the same library, in the order they were sent. */
+      library_reference_ids: z.array(z.string().uuid()).optional(),
+    })
+    .optional(),
 }).strict();
 
 export type StyleGenerationPacket = z.infer<typeof StyleGenerationPacketSchema>;
@@ -236,11 +243,14 @@ export interface CompileStyleGenerationPacketInput {
   originalPrompt: string;
   contentOverrides?: StyleContentOverrides | Record<string, unknown> | null;
   references: ReadonlyArray<{ id: string; content_hash: string | null }>;
+  /** Subset of `references` that came from the library rather than this style. */
+  libraryReferenceIds?: readonly string[];
   operation: StyleGenerationPacket["operation"];
   sourceVersionId?: string | null;
   sourcePacket?: StyleGenerationPacket | null;
   editTarget?: string | null;
   model: StyleGenerationPacket["model"];
+  background?: "transparent" | null;
   size: StyleGenerationPacket["size"];
   quality: StyleGenerationPacket["quality"];
   count: StyleGenerationPacket["count"];
@@ -403,6 +413,36 @@ function compilePrompt(params: {
     .join("\n\n");
 }
 
+/** Provenance metadata: undefined rather than an empty object when there is nothing to record. */
+function buildPacketMetadata(
+  adoptingCurrentStyle: boolean,
+  libraryReferenceIds: readonly string[],
+  references: ReadonlyArray<{ id: string }>,
+): StyleGenerationPacket["metadata"] {
+  const sent = new Set(references.map((reference) => reference.id));
+  const libraryIds = libraryReferenceIds.filter((id) => sent.has(id));
+  if (!adoptingCurrentStyle && libraryIds.length === 0) return undefined;
+  return {
+    ...(adoptingCurrentStyle ? { style_provenance: "current_style_fallback" as const } : {}),
+    ...(libraryIds.length ? { library_reference_ids: [...libraryIds] } : {}),
+  };
+}
+
+/**
+ * The prompt a generation would compile to right now, for previewing an edit to
+ * the schema before it is applied. Uses the confirmed reference set's shape; no
+ * provider call, no packet.
+ */
+export function previewCompiledPrompt(params: {
+  schema: Record<string, unknown>;
+  references: ReadonlyArray<{ id: string; content_hash: string | null }>;
+}): string {
+  const schema = PromptSchemaSchema.parse(params.schema);
+  const content = emptyContent();
+  const references = params.references.map((reference) => ({ id: reference.id, content_hash: reference.content_hash }));
+  return compilePrompt({ schema, content, references, edit: null });
+}
+
 /** Compile an immutable style generation packet without I/O or implicit truncation. */
 export function compileStyleGenerationPacket(
   input: CompileStyleGenerationPacketInput,
@@ -504,6 +544,7 @@ export function compileStyleGenerationPacket(
     size: input.size,
     quality: input.quality,
     count: input.count,
-    metadata: adoptingCurrentStyle ? { style_provenance: "current_style_fallback" } : undefined,
+    ...(input.background === "transparent" ? { background: "transparent" as const } : {}),
+    metadata: buildPacketMetadata(adoptingCurrentStyle, input.libraryReferenceIds ?? [], references),
   });
 }

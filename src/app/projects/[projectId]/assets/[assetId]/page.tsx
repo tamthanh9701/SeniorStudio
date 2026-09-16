@@ -8,6 +8,7 @@ import ComparisonSlider from "@/components/editor/ComparisonSlider";
 import ProjectSidebar from "@/components/studio/ProjectSidebar";
 import StudioShell from "@/components/studio/StudioShell";
 import { Button } from "@/components/ui/button";
+import ExportTransparentDialog from "@/components/style/ExportTransparentDialog";
 
 export default async function AssetDetailPage({
   params,
@@ -41,6 +42,7 @@ export default async function AssetDetailPage({
           <p className="text-xs text-muted-foreground">Immutable asset detail</p>
         </div>
         <div className="flex gap-2">
+          {currentVersion && <ExportTransparentDialog assetId={assetId} versionId={currentVersion.id} />}
           {currentVersion?.signedUrl && (
             <Button asChild variant="outline" size="icon">
               <a href={currentVersion.signedUrl} download aria-label="Download current version"><Download className="size-4" /></a>

@@ -4,6 +4,9 @@ export const STYLE_ERROR_STATUS: Record<string, number> = {
   UNAUTHORIZED: 401,
   STYLE_NOT_FOUND: 404,
   NOT_FOUND: 404,
+  // A missing or foreign reference is a 404 on every path; without this entry the
+  // StyleError branch answered 400 for the same code the generic branch mapped to 404.
+  REFERENCE_NOT_FOUND: 404,
   INVALID_REQUEST: 400,
   STYLE_NOT_READY: 409,
   STYLE_NOT_ACTIVE: 409,

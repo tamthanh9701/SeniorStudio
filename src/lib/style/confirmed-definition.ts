@@ -20,7 +20,7 @@ export const ConfirmedStyleDefinitionSchema = z
     definition_version: z.literal(1),
     style_revision: z.string().uuid(),
     schema_snapshot: PromptSchemaSchema,
-    reference_snapshot: z.array(ConfirmedReferenceSchema).min(1).max(8),
+    reference_snapshot: z.array(ConfirmedReferenceSchema).min(1).max(20),
     confirmed_at: z.string().min(1),
   })
   .strict();

@@ -7,7 +7,7 @@ import { createClient, getServiceClient } from "@/supabase/server";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 
-const MAX_REFERENCES = 8;
+const MAX_REFERENCES = 20;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const SUPPORTED_MIME = new Set(["image/png", "image/jpeg"]);

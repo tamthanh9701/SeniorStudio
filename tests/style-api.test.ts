@@ -41,6 +41,16 @@ function rpcNode(final: unknown) {
   return node;
 }
 
+
+/** The style list also loads covers; those tables resolve empty here. */
+function emptyCoverQuery() {
+  const node: Record<string, unknown> = {};
+  for (const method of ["select", "in", "is", "eq"]) node[method] = vi.fn(() => node);
+  node.order = vi.fn(async () => ({ data: [], error: null }));
+  node.then = (onFulfilled: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(onFulfilled);
+  return node;
+}
+
 function jsonRequest(url: string, body?: unknown, method = "POST") {
   return new Request(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
@@ -58,7 +68,7 @@ describe("GET /api/styles", () => {
   });
 
   it("counts only live references and reports the setup state", async () => {
-    (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
+    (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => table === "styles" ? {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn(async () => ({
@@ -79,18 +89,18 @@ describe("GET /api/styles", () => {
         }],
         error: null,
       })),
-    });
+    } : emptyCoverQuery());
     const response = await GET(new Request("http://localhost/api/styles"));
     const body = await response.json();
     expect(body.styles[0]).toMatchObject({ id: "s1", referenceCount: 2, setupState: "ready" });
   });
 
   it("reports references as the next step while a style is unconfirmed", async () => {
-    (client.from as ReturnType<typeof vi.fn>).mockReturnValue({
+    (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => table === "styles" ? {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn(async () => ({ data: [{ id: "s1", name: "A", status: "draft", updated_at: "2026-01-01", library_id: null, analysis_meta: {}, confirmed_definition: null, style_references: [] }], error: null })),
-    });
+    } : emptyCoverQuery());
     const response = await GET(new Request("http://localhost/api/styles"));
     const body = await response.json();
     expect(body.styles[0]).toMatchObject({ id: "s1", referenceCount: 0, setupState: "references" });
@@ -164,26 +174,54 @@ describe("PATCH /api/styles/[styleId]", () => {
 });
 
 describe("DELETE /api/styles/[styleId]", () => {
-  it("deletes the style and cleans storage paths", async () => {
+  function stubStyle() {
     (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
       if (table === "styles") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          maybeSingle: vi.fn(async () => ({ data: { id: "s1", workspace_id: "ws-1" } })),
-          delete: vi.fn().mockReturnThis(),
-        };
-      }
-      if (table === "style_references") {
-        return { select: vi.fn().mockReturnThis(), eq: vi.fn(async () => ({ data: [{ storage_path: "ws-1/styles/s1/r1.png" }] })) };
+        return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: vi.fn(async () => ({ data: { id: "s1", name: "Lolo" } })) };
       }
       return {};
     });
-    const remove = vi.fn(async () => ({ error: null }));
+  }
+
+  it("refuses to delete when the submitted name does not match", async () => {
+    stubStyle();
+    const response = await deleteStyle(new Request("http://x?confirmName=Nope", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("CONFIRMATION_MISMATCH");
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  it("deletes through the RPC and removes the returned paths in batches of 100", async () => {
+    stubStyle();
+    const paths = Array.from({ length: 101 }, (_, index) => `ws-1/styles/s1/${index}.png`);
+    (client.rpc as ReturnType<typeof vi.fn>).mockReturnValue(rpcNode({ data: { images: 3, references: 1, jobs: 2, storage_paths: paths }, error: null }));
+    const remove = vi.fn(async (_paths: string[]) => ({ error: null }));
     serviceClient.storage.from.mockReturnValue({ remove });
-    const response = await deleteStyle(new Request("http://x", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
+    const response = await deleteStyle(new Request("http://x?confirmName=Lolo", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
+    const body = await response.json();
     expect(response.status).toBe(200);
-    expect(remove).toHaveBeenCalledWith(["ws-1/styles/s1/r1.png"]);
+    expect(body.deleted).toEqual({ images: 3, references: 1, jobs: 2 });
+    expect((client.rpc as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual(["delete_style_hard", { p_style_id: "s1" }]);
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(remove.mock.calls[0][0]).toHaveLength(100);
+    expect(remove.mock.calls[1][0]).toEqual(["ws-1/styles/s1/100.png"]);
+  });
+
+  it("reports a running generation as a conflict", async () => {
+    stubStyle();
+    (client.rpc as ReturnType<typeof vi.fn>).mockReturnValue(rpcNode({ data: null, error: { message: "STYLE_BUSY" } }));
+    const response = await deleteStyle(new Request("http://x?confirmName=Lolo", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("STYLE_BUSY");
+  });
+
+  it("still reports success when orphaned storage objects cannot be removed", async () => {
+    stubStyle();
+    (client.rpc as ReturnType<typeof vi.fn>).mockReturnValue(rpcNode({ data: { images: 0, references: 1, jobs: 0, storage_paths: ["ws-1/styles/s1/r1.png"] }, error: null }));
+    serviceClient.storage.from.mockReturnValue({ remove: vi.fn(async () => ({ error: { message: "storage down" } })) });
+    const response = await deleteStyle(new Request("http://x?confirmName=Lolo", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).ok).toBe(true);
   });
 });
 
@@ -212,14 +250,23 @@ describe("POST /api/styles/[styleId]/references", () => {
     });
   }
 
-  it("returns 400 when the 9th reference would exceed the limit", async () => {
-    stubUploads(8);
+  it("returns 400 when the 21st reference would exceed the limit", async () => {
+    stubUploads(20);
     const form = new FormData();
     form.append("files", pngFile());
     const response = await uploadReference(new Request("http://x", { method: "POST", body: form }), { params: Promise.resolve({ styleId: "s1" }) });
     const body = await response.json();
     expect(response.status).toBe(400);
     expect(body.error.code).toBe("TOO_MANY_REFERENCES");
+  });
+
+  it("accepts the 20th reference", async () => {
+    stubUploads(19);
+    serviceClient.storage.from.mockReturnValue({ upload: vi.fn(async () => ({ error: null })), remove: vi.fn(async () => ({ error: null })) });
+    const form = new FormData();
+    form.append("files", pngFile());
+    const response = await uploadReference(new Request("http://x", { method: "POST", body: form }), { params: Promise.resolve({ styleId: "s1" }) });
+    expect(response.status).toBe(201);
   });
 
   it("returns 415 for a wrong magic-bytes/declared-MIME mismatch", async () => {
@@ -242,7 +289,7 @@ describe("POST /api/styles/[styleId]/references", () => {
     stubUploads(0, { data: null, error: { message: "db down" } });
     (client.rpc as ReturnType<typeof vi.fn>).mockImplementation(() => rpcNode({ data: null, error: { message: "db down" } }));
     const upload = vi.fn(async () => ({ error: null }));
-    const remove = vi.fn(async () => ({ error: null }));
+    const remove = vi.fn(async (_paths: string[]) => ({ error: null }));
     serviceClient.storage.from.mockReturnValue({ upload, remove });
     const form = new FormData();
     form.append("files", pngFile());

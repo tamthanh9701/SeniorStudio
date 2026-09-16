@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { STORAGE_BUCKET } from "@/db/schema";
 
 /** Runtime-private brand: unlike `declare const`, this exists when code executes. */
@@ -95,18 +96,63 @@ export async function getOwnedAssetVersion(client: SupabaseClient, workspaceId: 
 }
 
 export type OwnedStyleReference = { reference: { id: string; style_id: string; storage_path: string; mime_type: string; byte_size: number; width: number; height: number; content_hash: string | null; created_at: string }; style: { id: string; workspace_id: string }; owned: OwnedStorageObject };
-export async function getOwnedStyleReference(client: SupabaseClient, workspaceId: string, styleId: string, referenceId: string): Promise<OwnedStyleReference> {
+/**
+ * A job's reference, which may be borrowed from another style in the same
+ * library. The job style's `library_id` is read once by the caller, so this
+ * stays a single query per reference.
+ */
+const JobReferenceRowSchema = z.object({
+  id: z.string().uuid(),
+  style_id: z.string().uuid(),
+  storage_path: z.string().min(1),
+  mime_type: z.string().min(1),
+  byte_size: z.number(),
+  width: z.number(),
+  height: z.number(),
+  content_hash: z.string().nullable(),
+  created_at: z.string(),
+  styles: z.object({ id: z.string().uuid(), workspace_id: z.string().uuid(), library_id: z.string().uuid().nullable() }),
+});
+
+export async function getOwnedJobReference(
+  client: SupabaseClient,
+  params: { workspaceId: string; styleId: string; referenceId: string; libraryId: string | null },
+): Promise<OwnedStyleReference> {
+  const { workspaceId, styleId, referenceId, libraryId } = params;
   if (!isUuid(workspaceId) || !isUuid(styleId) || !isUuid(referenceId)) throw ownedError("INVALID_STORAGE_PATH");
-  const { data, error } = await client.from("style_references").select("id, style_id, storage_path, mime_type, byte_size, width, height, content_hash, created_at, styles!inner(id, workspace_id)").eq("id", referenceId).eq("style_id", styleId).eq("styles.workspace_id", workspaceId).single();
+  const { data, error } = await client
+    .from("style_references")
+    .select("id, style_id, storage_path, mime_type, byte_size, width, height, content_hash, created_at, styles!inner(id, workspace_id, library_id)")
+    .eq("id", referenceId)
+    .eq("styles.workspace_id", workspaceId)
+    .is("retired_at", null)
+    .single();
   if (error) throw error;
-  if (!data) throw ownedError("NOT_FOUND");
-  const style = (data as Record<string, unknown>).styles as { id: string; workspace_id: string };
-  if (!style || style.id !== styleId || style.workspace_id !== workspaceId || data.id !== referenceId || data.style_id !== styleId) throw ownedError("INVALID_STORAGE_PATH");
-  const mime = String(data.mime_type).toLowerCase();
-  const ext = data.storage_path?.split(".").pop()?.toLowerCase() ?? "";
-  if (!EXT_BY_MIME[mime]?.includes(ext) || !new RegExp(`^${workspaceId}/styles/${styleId}/${referenceId}\\.(png|jpg|jpeg|webp)$`, "i").test(data.storage_path)) throw ownedError("INVALID_STORAGE_PATH");
-  assertRow({ ...data, asset_id: referenceId } as Record<string, unknown>, mime, EXT_BY_MIME[mime]);
-  return { reference: data as OwnedStyleReference["reference"], style, owned: brandOwned(workspaceId, data.storage_path) };
+  const parsed = JobReferenceRowSchema.safeParse(data);
+  if (!parsed.success) throw ownedError("NOT_FOUND");
+  const row = parsed.data;
+  if (row.id !== referenceId || row.styles.workspace_id !== workspaceId || row.style_id !== row.styles.id) throw ownedError("INVALID_STORAGE_PATH");
+  // Borrowing is allowed only between styles of one library.
+  if (row.style_id !== styleId && (libraryId === null || row.styles.library_id !== libraryId)) throw ownedError("NOT_FOUND");
+  const mime = row.mime_type.toLowerCase();
+  const ext = row.storage_path.split(".").pop()?.toLowerCase() ?? "";
+  if (!EXT_BY_MIME[mime]?.includes(ext) || !new RegExp(`^${workspaceId}/styles/${row.style_id}/${referenceId}\\.(png|jpg|jpeg|webp)$`, "i").test(row.storage_path)) throw ownedError("INVALID_STORAGE_PATH");
+  assertRow({ ...row, asset_id: referenceId }, mime, EXT_BY_MIME[mime]);
+  return {
+    reference: {
+      id: row.id,
+      style_id: row.style_id,
+      storage_path: row.storage_path,
+      mime_type: row.mime_type,
+      byte_size: row.byte_size,
+      width: row.width,
+      height: row.height,
+      content_hash: row.content_hash,
+      created_at: row.created_at,
+    },
+    style: { id: row.styles.id, workspace_id: row.styles.workspace_id },
+    owned: brandOwned(workspaceId, row.storage_path),
+  };
 }
 
 export type OwnedJobMask = { mask: { id: string; workspace_id: string; project_id: string | null; style_id: string | null; asset_id: string | null; parent_version_id: string; storage_path: string; mime_type: string; width: number; height: number; byte_size: number; expires_at: string; job_id: string | null }; owned: OwnedStorageObject };

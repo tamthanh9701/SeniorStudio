@@ -129,7 +129,9 @@ export function useModuleJobs(scope: ModuleScope, initialItems: ProjectJobFeedIt
     let closed = false;
     const poll = async () => {
       const startedAt = Date.now();
-      await refresh({ quiet: true });
+      // A hidden tab keeps its schedule but skips the request: nobody is looking
+      // at the feed, and the first visible poll catches up immediately.
+      if (typeof document === "undefined" || !document.hidden) await refresh({ quiet: true });
       if (closed) return;
       // Keep the intended cadence when the server answers slower than it, but never let two
       // requests overlap: a superseded response is discarded, so overlapping polls would

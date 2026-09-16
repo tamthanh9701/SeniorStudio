@@ -7,6 +7,13 @@ function modelWithoutPrefix(model: string) {
   return model.replace(/^openai\//, "");
 }
 
+/** The edit endpoint reports an unusable parameter as a 400 mentioning it. */
+function backgroundError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/background/i.test(message)) throw new ProviderError("BACKGROUND_UNSUPPORTED", message);
+  throw error;
+}
+
 function fileNameForMime(mimeType: string): string {
   if (mimeType === "image/jpeg") return "image.jpg";
   if (mimeType === "image/webp") return "image.webp";
@@ -39,6 +46,7 @@ export const openAiProvider: ImageProvider = {
 
       const imageArray: File[] = [];
       for (const ref of refs) imageArray.push(await toFile(ref.bytes, fileNameForMime(ref.mimeType), { type: ref.mimeType }));
+      const transparent = job.input.background === "transparent";
       const response = await openai.images.edit({
         model,
         prompt: job.input.prompt,
@@ -46,7 +54,8 @@ export const openAiProvider: ImageProvider = {
         size: job.input.size,
         quality: job.input.quality,
         image: imageArray,
-      }, options);
+        ...(transparent ? { background: "transparent" as const, output_format: "png" as const } : {}),
+      }, options).catch((error: unknown) => (transparent ? backgroundError(error) : Promise.reject(error)));
       const responseData = response.data ?? [];
       const images = responseData.map((image) => {
         if (!image.b64_json) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "OpenAI returned no image data");
@@ -60,6 +69,7 @@ export const openAiProvider: ImageProvider = {
       const source = sources[0];
       const imageArray: File[] = [await toFile(source.bytes, fileNameForMime(source.mimeType), { type: source.mimeType })];
       for (const ref of refs) imageArray.push(await toFile(ref.bytes, fileNameForMime(ref.mimeType), { type: ref.mimeType }));
+      const transparent = job.input.background === "transparent";
       const response = await openai.images.edit({
         model,
         prompt: job.input.prompt,
@@ -67,7 +77,8 @@ export const openAiProvider: ImageProvider = {
         size: job.input.size,
         quality: job.input.quality,
         image: imageArray,
-      }, options);
+        ...(transparent ? { background: "transparent" as const, output_format: "png" as const } : {}),
+      }, options).catch((error: unknown) => (transparent ? backgroundError(error) : Promise.reject(error)));
       const responseData = response.data ?? [];
       const images = responseData.map((image) => {
         if (!image.b64_json) throw new ProviderError("MALFORMED_PROVIDER_OUTPUT", "OpenAI returned no image data");

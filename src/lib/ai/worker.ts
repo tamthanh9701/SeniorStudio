@@ -10,7 +10,7 @@ import { getProviderApiKey } from "@/lib/ai/credentials";
 import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types";
 import { ProviderError } from "@/lib/ai/providers/types";
 import { STORAGE_BUCKET } from "@/db/schema";
-import { getOwnedAssetVersion, getOwnedJobMask, getOwnedStyleReference, downloadOwnedBytes, removeOwnedObjects, ownedStorageObjectFromPath } from "@/lib/assets/ownership";
+import { getOwnedAssetVersion, getOwnedJobMask, getOwnedJobReference, downloadOwnedBytes, removeOwnedObjects, ownedStorageObjectFromPath } from "@/lib/assets/ownership";
 /** Lease duration; the provider budget below must stay under it. */
 export const LEASE_SECONDS = 180;
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -286,9 +286,18 @@ async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<P
   if (referenceIds.length > 0 && (!expectedHashes || expectedHashes.size !== referenceIds.length)) {
     throw new ProviderError("INVALID_REQUEST", "Job references do not match its recorded style snapshot");
   }
+  // Read once: a job may borrow references from other styles of its library.
+  const jobStyleId = job.style_id;
+  let libraryId: string | null = null;
+  if (referenceIds.length > 0) {
+    if (!jobStyleId) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
+    const { data: styleRow, error: styleError } = await client.from("styles").select("library_id").eq("id", jobStyleId).single();
+    if (styleError) throw new ProviderError("NOT_FOUND", "Style not found");
+    libraryId = typeof styleRow?.library_id === "string" ? styleRow.library_id : null;
+  }
   for (const referenceId of referenceIds) {
-    if (!job.style_id) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
-    const owned = await getOwnedStyleReference(client, job.workspace_id, job.style_id, referenceId);
+    if (!jobStyleId) throw new ProviderError("INVALID_REQUEST", "Style reference requires style job");
+    const owned = await getOwnedJobReference(client, { workspaceId: job.workspace_id, styleId: jobStyleId, referenceId, libraryId });
     const downloaded = await downloadOwnedBytes(client, owned.owned);
     const expected = expectedHashes!.get(referenceId) ?? "";
     if (expected && sha256Hex(downloaded.bytes) !== expected) {

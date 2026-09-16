@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { createClient } from "@/supabase/server";
+import { getSignedUrls } from "@/lib/assets/service";
 import { enforceAiQuota } from "@/lib/ai/quota";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { runStyleVisionAction } from "@/lib/style/vision-actions";
@@ -27,11 +28,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   const { data: style } = await supabase.from("styles").select("schema, workspace_id").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
   const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId).is("retired_at", null).order("created_at");
-  const referenceUrls = await Promise.all((references ?? []).slice(0, 4).map(async (reference) => {
-    const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(reference.storage_path, 300);
-    return data?.signedUrl ?? null;
-  }));
-  const validReferenceUrls = referenceUrls.filter((url): url is string => Boolean(url));
+  const referencePaths = (references ?? []).slice(0, 4).map((reference) => reference.storage_path);
+  const signedReferences = await getSignedUrls(supabase, referencePaths);
+  const validReferenceUrls = referencePaths.map((path) => signedReferences.get(path)).filter((url): url is string => Boolean(url));
 
   try {
     const report = await runStyleVisionAction({

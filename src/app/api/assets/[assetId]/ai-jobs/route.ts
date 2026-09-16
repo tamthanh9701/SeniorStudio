@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { InpaintEnqueueSchema, providerForModel } from "@/db/ai-jobs";
+import { InpaintEnqueueSchema, ProjectVariationEnqueueSchema, providerForModel } from "@/db/ai-jobs";
 import { assertModelSupports } from "@/lib/ai/models";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getProviderApiKey } from "@/lib/ai/credentials";
@@ -11,13 +11,41 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
-  const parsed = InpaintEnqueueSchema.safeParse(await request.json().catch(() => null));
+  const body = await request.json().catch(() => null);
+  // One route, two shapes: an edit carries a mask, a variation carries only a
+  // source version. The operation field decides which one was sent.
+  const isVariation = typeof body === "object" && body !== null && body.operation === "image_to_image";
+  const parsed = (isVariation ? ProjectVariationEnqueueSchema : InpaintEnqueueSchema).safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });
   try {
     const { data: asset } = await supabase.from("assets").select("id, style_id, project_id, current_version_id").eq("id", assetId).single();
     if (!asset) throw new Error("NOT_FOUND");
     const member = (await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single()).data;
     if (!member) throw new Error("NOT_FOUND");
+    const workspaceId = member.workspace_id;
+    if (parsed.data.operation === "image_to_image") {
+      // A project variation: the source is a project asset and no style is
+      // applied (the style module owns that, with its confirmed definition).
+      if (asset.style_id || !asset.project_id) throw new Error("INVALID_REQUEST: a variation needs a project asset");
+      const variationModel = await assertModelSupports(parsed.data.model, "image_to_image", supabase, workspaceId);
+      if (!(await getProviderApiKey(variationModel.provider, { user: supabase, service: getServiceClient(), workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
+      if (!variationModel.sizes.includes(parsed.data.size as never) || !variationModel.qualities.includes(parsed.data.quality as never)) throw new Error("INVALID_MODEL");
+      if (parsed.data.background === "transparent" && variationModel.supportsTransparentBackground !== true) {
+        throw new Error("INVALID_REQUEST: this model cannot return a transparent background");
+      }
+      const { data: source } = await supabase.from("asset_versions").select("id").eq("id", parsed.data.sourceVersionId).eq("asset_id", assetId).maybeSingle();
+      if (!source) throw new Error("VERSION_CONFLICT");
+      const { data: job, error } = await supabase.rpc("enqueue_project_image_to_image_job", {
+        p_workspace_id: workspaceId, p_requested_by: user.id,
+        p_provider: providerForModel(parsed.data.model), p_model: parsed.data.model,
+        p_prompt: parsed.data.prompt, p_count: parsed.data.count, p_size: parsed.data.size, p_quality: parsed.data.quality,
+        p_source_version_id: parsed.data.sourceVersionId, p_cost_mode: parsed.data.costMode,
+        p_background: parsed.data.background ?? null,
+      });
+      if (error) throw error;
+      return NextResponse.json({ job }, { status: 202 });
+    }
+    if (parsed.data.libraryReferenceIds.length > 0) throw new Error("INVALID_REQUEST: an edit reuses the references of the image it came from");
     const model = await assertModelSupports(parsed.data.model, "inpaint", supabase, member.workspace_id);
     if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient(), workspaceId: member.workspace_id }))) throw new Error("PROVIDER_NOT_CONFIGURED");
     if (asset.style_id) {

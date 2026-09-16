@@ -139,39 +139,54 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ st
   return NextResponse.json({ style: updated });
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ styleId: string }> }) {
+type DeleteStyleResult = { images?: number; references?: number; jobs?: number; storage_paths?: string[] };
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
-  const { data: style } = await supabase.from("styles").select("id, workspace_id").eq("id", styleId).maybeSingle();
+
+  // Deleting is not reversible and takes the reference images and every image
+  // generated inside the style with it, so the style name is the confirmation.
+  const confirmName = new URL(request.url).searchParams.get("confirmName");
+  const { data: style } = await supabase.from("styles").select("id, name").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
-
-  const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId);
-  // Validate path ownership before privileged storage cleanup.
-  const mismatched = (references ?? []).filter((reference) => !reference.storage_path.startsWith(`${style.workspace_id}/`));
-  if (mismatched.length) {
-    console.error(`style storage_path mismatch style_ws=${style.workspace_id} paths=${mismatched.map((reference) => reference.storage_path).join(",")}`);
-    return NextResponse.json({ error: { code: "DELETE_FAILED", message: "Reference path ownership mismatch" } }, { status: 500 });
+  if (!confirmName || style.name !== confirmName.trim()) {
+    return NextResponse.json({ error: { code: "CONFIRMATION_MISMATCH", message: "Type the style name to confirm deletion" } }, { status: 400 });
   }
-  try {
-    // DB delete first — fail-closed on row error.
-    const { error } = await supabase.from("styles").delete().eq("id", styleId);
-    if (error) return NextResponse.json({ error: { code: "DELETE_FAILED", message: error.message } }, { status: 500 });
 
-    // Best-effort storage cleanup; orphans are logged, never surfaced to the client.
-    if (references?.length) {
-      const { error: storageError } = await getServiceClient().storage
-        .from(STORAGE_BUCKET)
-        .remove(references.map((reference) => reference.storage_path));
-      if (storageError) {
-        console.error(`style storage orphan prefix=${style.workspace_id}/styles/${styleId}/: ${storageError.message}`);
-      }
+  // The client cannot delete the styles row itself: ai_jobs.style_id and
+  // ai_job_inputs.style_id are NO ACTION, so the jobs and unused masks must go in
+  // the same transaction as the style.
+  const { data, error } = await supabase.rpc("delete_style_hard", { p_style_id: styleId });
+  if (error) {
+    const message = error.message || "Unknown error";
+    if (message.includes("STYLE_BUSY")) {
+      return NextResponse.json({ error: { code: "STYLE_BUSY", message: "This style is still generating; cancel its running jobs first" } }, { status: 409 });
     }
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    if (message.includes("STYLE_NOT_FOUND") || message.includes("NOT_FOUND")) {
+      return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+    }
     return NextResponse.json({ error: { code: "DELETE_FAILED", message } }, { status: 500 });
   }
+  const deleted = (data ?? {}) as DeleteStyleResult;
+
+  // Best-effort storage cleanup; orphans are logged, never surfaced to the client.
+  const paths = deleted.storage_paths ?? [];
+  const service = getServiceClient();
+  for (let index = 0; index < paths.length; index += 100) {
+    const chunk = paths.slice(index, index + 100);
+    try {
+      const { error } = await service.storage.from(STORAGE_BUCKET).remove(chunk);
+      if (error) console.error(`style storage orphan prefix=${styleId}/: ${error.message}`);
+    } catch (error) {
+      console.error(`style storage orphan prefix=${styleId}/: ${error instanceof Error ? error.message : "unknown"}`);
+    }
+  }
+  return NextResponse.json({
+    ok: true,
+    deleted: { images: deleted.images ?? 0, references: deleted.references ?? 0, jobs: deleted.jobs ?? 0 },
+  });
 }

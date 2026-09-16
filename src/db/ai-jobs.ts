@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** Feed page size: one screen of history, shared by the route and the SSR seed. */
+export const FEED_LIMIT = 25;
+
 export const AI_JOBS_TABLE = "ai_jobs";
 export const AI_JOB_INPUTS_TABLE = "ai_job_inputs";
 
@@ -37,6 +40,8 @@ export const AiJobInputSchema = z.object({
   temperature: z.number().nullable().optional(),
   mask_id: z.string().uuid().nullable().optional(),
   edit_target: z.string().nullable().optional(),
+  /** Set when the provider must return the subject on a transparent background. */
+  background: z.literal("transparent").nullable().optional(),
 });
 
 export const AiJobModuleSchema = z.enum(["projects", "style"]);
@@ -81,10 +86,24 @@ export const ImageToImageEnqueueSchema = z.object({
   confirmedModelId: SupportedModelIdSchema.optional(),
   referenceIds: z.array(z.string().uuid()).default([]),
 });
+// A project variation: the project module never applies a style, so this is the
+// plain image-to-image edit, optionally asking for a transparent background.
+export const ProjectVariationEnqueueSchema = z.object({
+  operation: z.literal("image_to_image"), model: SupportedModelIdSchema,
+  prompt: z.string().trim().min(1).max(8000),
+  sourceVersionId: z.string().uuid(),
+  count: GenerationCountSchema.default(1), size: SupportedSizeSchema, quality: SupportedQualitySchema,
+  costMode: CostModeSchema.default("strict_1000"),
+  background: z.literal("transparent").nullable().optional(),
+});
 export const InpaintEnqueueSchema = z.object({
   operation: z.literal("inpaint"), model: SupportedModelIdSchema, parentVersionId: z.string().uuid(), maskId: z.string().uuid(),
   prompt: z.string().trim().min(1).max(8000), quality: SupportedQualitySchema,
-  referenceIds: z.array(z.string().uuid()).default([]), editTarget: z.string().optional(), consent: z.object({ planHash: z.string().min(1) }).optional(), useCurrentStyle: z.boolean().optional(),
+  referenceIds: z.array(z.string().uuid()).default([]),
+  // Accepted so the API can refuse it explicitly: an edit reuses the references
+  // recorded with its source image, so borrowing cannot change what it means.
+  libraryReferenceIds: z.array(z.string().uuid()).default([]),
+  editTarget: z.string().optional(), consent: z.object({ planHash: z.string().min(1) }).optional(), useCurrentStyle: z.boolean().optional(),
 });
 export const MaskUploadSchema = z.object({ parentVersionId: z.string().uuid(), maskPng: z.string().min(1) });
 export const AiJobResponseSchema = z.object({ job: AiJobSchema, result_urls: z.array(z.string().url()).optional() });

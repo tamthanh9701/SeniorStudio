@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { ImageIcon, Mail, Settings, Sparkles, SwatchBook } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
@@ -59,7 +60,7 @@ export function RecentPrompts({ items, className }: { items: ProjectJobFeedItem[
             {/* A prompt is best recognised by what it produced. */}
             <Link href={hrefForJob(job)} className="flex w-full items-start gap-2.5">
               <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accent">
-                {result_urls[0] ? <img src={result_urls[0]} alt="" className="size-9 object-cover" /> : <ImageIcon className="size-4 text-muted-foreground" aria-hidden />}
+                {result_urls[0] ? <Image src={result_urls[0]} alt="" width={72} height={72} className="size-9 object-cover" /> : <ImageIcon className="size-4 text-muted-foreground" aria-hidden />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block w-full truncate text-sm text-foreground">{job.input.original_prompt ?? job.input.prompt}</span>

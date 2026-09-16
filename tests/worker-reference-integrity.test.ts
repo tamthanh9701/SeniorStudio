@@ -8,7 +8,7 @@ const mockSubmit = vi.fn();
 const mockProviderForJob = vi.fn();
 const mockGetProviderApiKey = vi.fn();
 const mockGetOwnedAssetVersion = vi.fn<(...args: unknown[]) => Promise<unknown>>();
-const mockGetOwnedStyleReference = vi.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockGetOwnedJobReference = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockGetOwnedJobMask = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockDownloadOwnedBytes = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockRemoveOwnedObjects = vi.fn<(...args: unknown[]) => Promise<undefined>>(async () => undefined);
@@ -22,7 +22,7 @@ vi.mock("@/lib/assets/inpaint-composite", () => ({
 }));
 vi.mock("@/lib/assets/ownership", () => ({
   getOwnedAssetVersion: (...args: unknown[]) => mockGetOwnedAssetVersion(...args),
-  getOwnedStyleReference: (...args: unknown[]) => mockGetOwnedStyleReference(...args),
+  getOwnedJobReference: (...args: unknown[]) => mockGetOwnedJobReference(...args),
   getOwnedJobMask: (...args: unknown[]) => mockGetOwnedJobMask(...args),
   downloadOwnedBytes: (...args: unknown[]) => mockDownloadOwnedBytes(...args),
   removeOwnedObjects: (...args: unknown[]) => mockRemoveOwnedObjects(...args),
@@ -91,7 +91,7 @@ beforeEach(() => {
   mockGetProviderApiKey.mockResolvedValue("test-key");
   mockRpc.mockResolvedValue({ data: null, error: null });
   mockGetOwnedAssetVersion.mockResolvedValue({ owned: {} });
-  mockGetOwnedStyleReference.mockResolvedValue({ owned: {} });
+  mockGetOwnedJobReference.mockResolvedValue({ owned: {} });
   mockGetOwnedJobMask.mockResolvedValue({ owned: {}, mask: { id: "aaaaaaaa-1111-4111-8111-111111111111" } });
   // Source, reference and mask are all downloaded through the same helper.
   mockDownloadOwnedBytes.mockResolvedValue({ bytes: new Uint8Array([9, 9, 9]), mimeType: "image/png" });

@@ -15,7 +15,7 @@ let client: Record<string, unknown>;
 
 function builder(final: unknown, overrides: Record<string, unknown> = {}) {
   const node: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "insert"]) {
+  for (const method of ["select", "eq", "is", "in", "order", "insert"]) {
     node[method] = vi.fn(() => node);
   }
   node.single = vi.fn(async () => final);

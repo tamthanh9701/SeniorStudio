@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiJob } from "@/db/ai-jobs";
-import { getSignedUrl } from "@/lib/assets/service";
+import { getSignedUrls } from "@/lib/assets/service";
 
 function jobVersionIds(job: AiJob): string[] {
   if (job.status !== "succeeded") return [];
@@ -21,11 +21,13 @@ export async function getJobsResultUrls(client: SupabaseClient, jobs: AiJob[]): 
       .in("id", versionIds);
     for (const version of versions ?? []) pathsById.set(version.id, version.storage_path);
   }
+  // One signing round-trip for the whole feed instead of one per result.
+  const signedPaths = await getSignedUrls(client, [...pathsById.values()]);
   const signedById = new Map<string, string>();
-  await Promise.all(versionIds.map(async (versionId) => {
-    const storagePath = pathsById.get(versionId);
-    if (storagePath) signedById.set(versionId, await getSignedUrl(client, storagePath));
-  }));
+  for (const [versionId, storagePath] of pathsById) {
+    const url = signedPaths.get(storagePath);
+    if (url) signedById.set(versionId, url);
+  }
   const resultUrls = new Map<string, string[]>();
   for (const { id, versionIds: ids } of perJobVersionIds) {
     resultUrls.set(id, ids.map((versionId) => signedById.get(versionId)).filter((url): url is string => Boolean(url)));

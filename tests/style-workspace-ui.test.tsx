@@ -160,13 +160,13 @@ beforeEach(() => {
 });
 
 describe("style list", () => {
-  it("shows setup status in plain words and links each row to its next step", async () => {
+  it("shows setup status in plain words and links each card to its style", async () => {
     installFetch(async (url) => {
       if (url.startsWith("/api/styles/libraries")) return respond({ libraries: [] });
       return respond({
         styles: [
-          { id: "s1", name: "Draft style", status: "draft", referenceCount: 0, updatedAt: "2026-01-01", libraryId: null, setupState: "references", operability: { score: 12, grade: "not_ready" } },
-          { id: "s2", name: "Ready style", status: "active", referenceCount: 3, updatedAt: "2026-01-01", libraryId: null, setupState: "ready", operability: { score: 96, grade: "production_ready" } },
+          { id: "s1", name: "Draft style", status: "draft", referenceCount: 0, imageCount: 0, thumbnailUrl: null, updatedAt: "2026-01-01", libraryId: null, setupState: "references", operability: { score: 12, grade: "not_ready" } },
+          { id: "s2", name: "Ready style", status: "active", referenceCount: 3, imageCount: 4, thumbnailUrl: null, updatedAt: "2026-01-01", libraryId: null, setupState: "ready", operability: { score: 96, grade: "production_ready" } },
         ],
       });
     });
@@ -175,13 +175,14 @@ describe("style list", () => {
 
     expect(host.textContent).toContain("Needs reference images");
     expect(host.textContent).toContain("Confirmed and ready");
-    expect(host.textContent).toContain("0/8 reference images");
+    expect(host.textContent).toContain("4 images · 3 references");
+    expect(host.textContent).toContain("0 images · 0 references");
     expect(host.textContent).not.toContain("production_ready");
     expect(host.textContent).not.toContain("96/100");
 
     const links = Array.from(host.querySelectorAll("a"));
-    expect(links.find((link) => link.textContent === "Continue setup")?.getAttribute("href")).toBe("/style/s1?tab=references");
-    expect(links.find((link) => link.textContent === "Open style")?.getAttribute("href")).toBe("/style/s2?tab=images");
+    expect(links.find((link) => link.textContent?.includes("Draft style"))?.getAttribute("href")).toBe("/style/s1");
+    expect(links.find((link) => link.textContent?.includes("Ready style"))?.getAttribute("href")).toBe("/style/s2");
     unmount(host, root);
   });
 
@@ -259,7 +260,7 @@ describe("style workspace", () => {
       if (url.includes("/references") && init?.method === "POST") {
         // The API accepts one file and then rejects the batch: accepted rows stay.
         state.references = [liveReference(LIVE_REF)];
-        return respond({ error: { code: "TOO_MANY_REFERENCES", message: "A style supports at most 8 reference images" } }, false);
+        return respond({ error: { code: "TOO_MANY_REFERENCES", message: "A style supports at most 20 reference images" } }, false);
       }
       return respond({ style: alertStyleRow({ references: state.references }) });
     });

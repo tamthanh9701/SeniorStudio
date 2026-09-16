@@ -14,6 +14,7 @@ import {
   Upload,
   Wand2,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { formatDateTime } from "@/lib/format/datetime";
+import { formatDateTime, vnDayKey } from "@/lib/format/datetime";
 import { isTerminalStatus, type AiJob, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { useModuleJobs } from "@/lib/ai/use-module-jobs";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
@@ -46,8 +47,12 @@ import {
   type StyleSetupState,
 } from "@/lib/style/confirmed-definition";
 
-const MAX_REFERENCES = 8;
+const MAX_REFERENCES = 20;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+// The upload route accepts 20 MB per request; more files than that go in
+// several requests because one oversized body would be rejected outright.
+const MAX_UPLOAD_BATCH_FILES = 4;
+const MAX_UPLOAD_BATCH_BYTES = 20 * 1024 * 1024;
 const MAX_GALLERY_ASSETS = 50;
 
 export type WorkspaceTab = "images" | "references" | "style";
@@ -231,6 +236,7 @@ export default function StyleWorkspace({
   // The feed is live: the worker updates rows while the user watches, and the
   // server-rendered jobs only seed it.
   const { items: jobs, addJob } = useModuleJobs({ module: "style", styleId }, initialJobs);
+  const [todayKey, setTodayKey] = useState<string | null>(null);
   const activeJobIds = useMemo(() => jobs.filter(({ job }) => !isTerminalStatus(job.status)).map(({ job }) => job.id), [jobs]);
   const previousActiveJobIds = useRef(activeJobIds);
 
@@ -281,6 +287,7 @@ export default function StyleWorkspace({
   }, [refresh]);
 
   useEffect(() => { setNameDraft(detail?.name ?? ""); }, [detail?.name]);
+  useEffect(() => setTodayKey(vnDayKey(Date.now())), []);
 
   const references = useMemo(() => detail?.references ?? [], [detail?.references]);
   const setupState: StyleSetupState = detail ? getStyleSetupState(detail, references.length) : "references";
@@ -336,6 +343,10 @@ export default function StyleWorkspace({
   // or that failed since the last successful image.
   const runningJobs = activeJobIds.length;
   const latestFailure = jobs.find(({ job }) => job.status === "failed") ?? null;
+  // "Today" is the Vietnam calendar day, resolved after mount so the server and
+  // the client cannot disagree about which jobs count.
+  const succeededToday = todayKey === null ? 0 : jobs.filter(({ job }) => job.status === "succeeded" && vnDayKey(job.created_at) === todayKey).length;
+  const failedToday = todayKey === null ? 0 : jobs.filter(({ job }) => (job.status === "failed" || job.status === "canceled") && vnDayKey(job.created_at) === todayKey).length;
   const runningAssetIds = new Set(
     jobs
       .filter(({ job }) => !isTerminalStatus(job.status))
@@ -456,39 +467,59 @@ export default function StyleWorkspace({
       setFeedback({ kind: "error", text: problems.join(" ") });
       return;
     }
+    const batches: File[][] = [];
+    let batch: File[] = [];
+    let batchBytes = 0;
+    for (const file of queued) {
+      if (batch.length >= MAX_UPLOAD_BATCH_FILES || batchBytes + file.size > MAX_UPLOAD_BATCH_BYTES) {
+        batches.push(batch);
+        batch = [];
+        batchBytes = 0;
+      }
+      batch.push(file);
+      batchBytes += file.size;
+    }
+    if (batch.length) batches.push(batch);
+
     setBusy("upload");
     setFeedback(null);
-    setStatus(`Uploading ${queued.length} reference image(s)…`);
+    // Batches go one after another: a rejected batch must not hide the files an
+    // earlier batch already accepted.
+    let accepted = 0;
+    const failures: string[] = [];
     try {
-      const form = new FormData();
-      for (const file of queued) form.append("files", file);
-      const response = await fetch(`/api/styles/${styleId}/references`, { method: "POST", body: form });
-      const body = await response.json().catch(() => ({}));
-      await refresh({ silent: true });
-      if (!response.ok) {
-        setStatus("");
-        setFeedback({
-          kind: "error",
-          text: `${problems.length ? `${problems.join(" ")} ` : ""}${body.error?.code ?? "UPLOAD_FAILED"}: ${body.error?.message ?? "Upload failed"}. Files that were already accepted are kept — check the list below.`,
-        });
-        return;
+      for (const [index, chunk] of batches.entries()) {
+        setStatus(`Uploading ${queued.length} reference image(s) — batch ${index + 1} of ${batches.length}…`);
+        const form = new FormData();
+        for (const file of chunk) form.append("files", file);
+        const response = await fetch(`/api/styles/${styleId}/references`, { method: "POST", body: form });
+        const body = await response.json().catch(() => ({}));
+        await refresh({ silent: true });
+        if (!response.ok) {
+          failures.push(`${body.error?.code ?? "UPLOAD_FAILED"}: ${body.error?.message ?? "Upload failed"}`);
+          continue;
+        }
+        accepted += Array.isArray(body.references) ? body.references.length : chunk.length;
       }
-      const count = Array.isArray(body.references) ? body.references.length : queued.length;
-      setStatus(`Uploaded ${count} reference image(s).`);
-      setFeedback({
-        kind: problems.length ? "error" : "success",
-        text: `${problems.length ? `${problems.join(" ")} ` : ""}${count} reference image(s) added. Run Analyze references when the set is complete.`,
-      });
     } catch {
+      failures.push("NETWORK_ERROR: Upload failed");
       await refresh({ silent: true });
-      setStatus("");
-      setFeedback({
-        kind: "error",
-        text: `${problems.length ? `${problems.join(" ")} ` : ""}NETWORK_ERROR: Upload failed. Files that were already accepted are kept — check the list below.`,
-      });
-    } finally {
-      setBusy(null);
     }
+    const notes = [...problems, ...failures];
+    if (accepted === 0) {
+      // A rejected request can still have stored part of its batch server-side,
+      // so the list below — not this message — says what the style holds.
+      setStatus("");
+      setFeedback({ kind: "error", text: `${notes.join(" ")} Files that were already accepted are kept — check the list below.` });
+      setBusy(null);
+      return;
+    }
+    setStatus(`Uploaded ${accepted} reference image(s).`);
+    setFeedback({
+      kind: notes.length ? "error" : "success",
+      text: `${notes.length ? `${notes.join(" ")} ` : ""}${accepted} reference image(s) added. Files that were already accepted are kept — run Analyze references when the set is complete.`,
+    });
+    setBusy(null);
   };
 
   const removeReference = async (referenceId: string) => {
@@ -651,11 +682,16 @@ export default function StyleWorkspace({
   };
 
   const deleteStyle = async () => {
-    if (busy !== null) return;
+    if (busy !== null || !detail) return;
+    const confirmedName = nameDraft.trim();
+    if (confirmedName !== detail.name) {
+      setFeedback({ kind: "error", text: "Type the style name exactly to confirm deletion" });
+      return;
+    }
     setBusy("delete");
     setStatus("Deleting this style…");
     try {
-      const response = await fetch(`/api/styles/${styleId}`, { method: "DELETE" });
+      const response = await fetch(`/api/styles/${styleId}?confirmName=${encodeURIComponent(confirmedName)}`, { method: "DELETE" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         setDeleteOpen(false);
@@ -663,7 +699,12 @@ export default function StyleWorkspace({
         setFeedback({ kind: "error", text: `${body.error?.code ?? "DELETE_FAILED"}: ${body.error?.message ?? "Unable to delete this style"}` });
         return;
       }
-      router.push("/style");
+      setDeleteOpen(false);
+      // The workspace unmounts on navigation, so the confirmation travels as a
+      // query parameter and the style list renders it.
+      const deleted = (body.deleted ?? {}) as { images?: number; references?: number };
+      const params = new URLSearchParams({ deleted: detail.name, images: String(deleted.images ?? 0), references: String(deleted.references ?? 0) });
+      router.push(`/style?${params.toString()}`);
       router.refresh();
     } catch {
       setDeleteOpen(false);
@@ -725,7 +766,7 @@ export default function StyleWorkspace({
       <div className="space-y-1">
         <h2 className="text-lg font-semibold">References</h2>
         <p className="text-sm text-muted-foreground">
-          Upload 1–8 PNG or JPEG images, up to 5 MB each. They define rendering, palette, lighting and materials — not the subjects you ask for later.
+          Upload up to {MAX_REFERENCES} PNG or JPEG images, 5 MB each. They define rendering, palette, lighting and materials — not the subjects you ask for later.
         </p>
       </div>
 
@@ -763,7 +804,7 @@ export default function StyleWorkspace({
             />
           </label>
         </Button>
-        <p className="text-xs text-muted-foreground">PNG or JPEG · 5 MB each · 8 images maximum</p>
+        <p className="text-xs text-muted-foreground">PNG or JPEG · 5 MB each · {MAX_REFERENCES} images maximum</p>
       </Card>
 
       {references.length > 0 && (
@@ -1045,7 +1086,7 @@ export default function StyleWorkspace({
                 <li key={asset.id} className="group relative overflow-hidden rounded-lg border border-border bg-card transition hover:border-primary">
                   <Link href={`/style/${styleId}/assets/${asset.id}`} className="block">
                     {asset.signedUrl
-                      ? <img src={asset.signedUrl} alt={asset.name} className="aspect-square w-full object-cover" />
+                      ? <Image src={asset.signedUrl} alt={asset.name} width={512} height={512} sizes="(min-width:1024px) 22vw, (min-width:640px) 30vw, 45vw" className="aspect-square w-full object-cover" />
                       : <span className="flex aspect-square items-center justify-center text-xs text-muted-foreground">Preview unavailable</span>}
                     <span className="block px-3 pb-2 pr-10 pt-2">
                       <span className="block truncate text-xs font-medium text-foreground">{asset.name}</span>
@@ -1134,7 +1175,8 @@ export default function StyleWorkspace({
                 <Activity className="size-4" aria-hidden /> Activity
               </span>
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                {runningJobs > 0 ? `${runningJobs} running` : latestFailure ? "A generation failed" : "All finished"}
+                {runningJobs > 0 ? `${runningJobs} running · ` : latestFailure ? "A generation failed · " : "All finished · "}
+                {todayKey !== null && `today ${succeededToday} done / ${failedToday} failed`}
                 <ChevronDown className={cn("size-4 transition", activityOpen && "rotate-180")} aria-hidden />
               </span>
             </Button>
@@ -1308,9 +1350,9 @@ export default function StyleWorkspace({
             </div>
             <div className="space-y-2 border-t border-border pt-4">
               <p className="text-sm font-medium text-destructive">Delete this style</p>
-              <p className="text-xs text-muted-foreground">Deleting removes the style and its reference images. Generated images are kept. This cannot be undone.</p>
+              <p className="text-xs text-muted-foreground">This permanently deletes the style, its reference images and every image generated inside it. This cannot be undone.</p>
               <div>
-                <Button type="button" variant="destructive" disabled={busy !== null} onClick={() => setDeleteOpen(true)}>
+                <Button type="button" variant="destructive" disabled={busy !== null} onClick={() => { setNameDraft(""); setDeleteOpen(true); }}>
                   <Trash2 className="size-4" aria-hidden /> Delete style
                 </Button>
               </div>
@@ -1320,13 +1362,17 @@ export default function StyleWorkspace({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <Dialog open={deleteOpen} onOpenChange={(open) => { setDeleteOpen(open); if (!open) setNameDraft(detail.name); }}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle className="text-base font-semibold">Delete “{detail.name}”?</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground">This deletes the style and its reference images. Already generated images stay in your workspace. This cannot be undone.</DialogDescription>
+          <DialogDescription className="text-sm text-muted-foreground">This permanently deletes the style, its reference images and every image generated inside it.</DialogDescription>
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm-name" className="text-xs font-semibold tracking-wide text-muted-foreground">Type the style name to confirm</Label>
+            <Input id="delete-confirm-name" value={nameDraft} placeholder={detail.name} autoComplete="off" onChange={(event) => setNameDraft(event.target.value)} />
+          </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)} disabled={busy !== null}>Cancel</Button>
-            <Button type="button" variant="destructive" className="flex-1" onClick={() => void deleteStyle()} disabled={busy !== null}>
+            <Button type="button" variant="outline" className="flex-1" onClick={() => { setDeleteOpen(false); setNameDraft(detail.name); }} disabled={busy !== null}>Cancel</Button>
+            <Button type="button" variant="destructive" className="flex-1" onClick={() => void deleteStyle()} disabled={busy !== null || nameDraft.trim() !== detail.name}>
               {busy === "delete" ? <LoaderCircle className="size-4 animate-spin" /> : null} Delete style
             </Button>
           </div>

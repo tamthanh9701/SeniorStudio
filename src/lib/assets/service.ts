@@ -159,3 +159,34 @@ export async function getSignedUrl(
 ): Promise<string> {
   return signOwnedUrl(client, ownedStorageObjectFromPath(storagePath), 600);
 }
+
+/**
+ * Signs many objects with one storage round-trip per 100 paths. Lists of image
+ * cards were paying one request per image, which dominated their latency.
+ */
+export async function getSignedUrls(
+  client: SupabaseClient,
+  paths: ReadonlyArray<string | null | undefined>,
+  expiresIn = 3600,
+): Promise<Map<string, string>> {
+  const signed = new Map<string, string>();
+  const unique = [...new Set(paths.filter((path): path is string => typeof path === "string" && path.length > 0))].filter((path) => {
+    // Traversal and workspace-prefix rules match the single-path signing path;
+    // one malformed row must not blank out the whole list.
+    try {
+      ownedStorageObjectFromPath(path);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  for (let index = 0; index < unique.length; index += 100) {
+    const chunk = unique.slice(index, index + 100);
+    const { data, error } = await client.storage.from(STORAGE_BUCKET).createSignedUrls(chunk, expiresIn);
+    if (error) throw error;
+    for (const entry of data ?? []) {
+      if (entry.path && entry.signedUrl) signed.set(entry.path, entry.signedUrl);
+    }
+  }
+  return signed;
+}

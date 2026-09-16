@@ -1,10 +1,12 @@
 "use client";
 
-import { LoaderCircle, Plus } from "lucide-react";
+import { Image as ImageIcon, LoaderCircle, Plus } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { StyleSetupState } from "@/lib/style/confirmed-definition";
+import { formatDate } from "@/lib/format/datetime";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,9 @@ type StyleListItem = {
   name: string;
   status: string;
   referenceCount: number;
+  imageCount: number;
+  thumbnailUrl: string | null;
+  updatedAt: string;
   libraryId: string | null;
   setupState?: StyleSetupState;
 };
@@ -41,7 +46,10 @@ function setupStateOf(style: StyleListItem): StyleSetupState {
   return style.setupState ?? (style.status === "active" ? "ready" : "references");
 }
 
-export default function StylePanel() {
+export default function StylePanel({ notice }: { notice?: string | null } = {}) {
+  // Held in state: the URL is cleaned immediately after mount, and the message
+  // must survive that navigation.
+  const [noticeText] = useState(notice ?? null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryName, setLibraryName] = useState("");
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -101,6 +109,9 @@ export default function StylePanel() {
 
   useEffect(() => { const timer = window.setTimeout(() => { void loadStyles(activeLibraryId); }, 0); return () => window.clearTimeout(timer); }, [loadStyles, activeLibraryId]);
   useEffect(() => { const timer = window.setTimeout(() => { void loadLibraries(); }, 0); return () => window.clearTimeout(timer); }, [loadLibraries]);
+  // The notice arrives once from the deleted style's workspace; a reload should
+  // not repeat a deletion that already happened.
+  useEffect(() => { if (notice) router.replace("/style"); }, [notice, router]);
 
   const create = async () => {
     const name = newName.trim();
@@ -138,6 +149,7 @@ export default function StylePanel() {
         {busy === "create" ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Create style
       </Button>
     </div>
+    {noticeText && <Alert variant="default" role="status" className="px-3 py-2"><AlertDescription className="text-sm text-success">{noticeText}</AlertDescription></Alert>}
     {feedback && <Alert variant={feedback.kind === "error" ? "destructive" : "default"} role="alert" className="px-3 py-2"><AlertDescription className={feedback.kind === "error" ? "text-sm" : "text-sm text-success"}>{feedback.text}</AlertDescription></Alert>}
     <div className="flex flex-col gap-3 sm:flex-row">
       <Input className="min-w-0 flex-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search style groups" aria-label="Search style groups" />
@@ -194,23 +206,37 @@ export default function StylePanel() {
 
     {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2"><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div>}
     {!stylesLoading && visibleStyles.length === 0 && <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No matching style groups.</p>}
-    <ul className="space-y-3">
+    <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {visibleStyles.map((style) => {
         const setupState = setupStateOf(style);
-        const ready = setupState === "ready";
         return <li key={style.id}>
-          <Card className="flex-row flex-wrap items-center gap-3 p-4">
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 font-medium">
-                <span aria-hidden className={style.status === "active" ? "text-success" : "text-muted-foreground"}>{style.status === "active" ? "●" : "○"}</span>
-                <span className="truncate">{style.name}</span>
-              </p>
-              <Badge variant="secondary" className="mt-2">{SETUP_STATUS[setupState]} · {style.referenceCount}/8 reference images</Badge>
-            </div>
-            <Button asChild variant={ready ? "outline" : "default"} className="shrink-0">
-              <Link href={`/style/${style.id}?tab=${ready ? "images" : "references"}`}>{ready ? "Open style" : "Continue setup"}</Link>
-            </Button>
-          </Card>
+          <Link href={`/style/${style.id}`} className="group block h-full">
+            <Card className="h-full gap-0 overflow-hidden p-0 transition-colors group-hover:border-primary/50">
+              {style.thumbnailUrl ? (
+                <Image
+                  src={style.thumbnailUrl}
+                  alt={style.name}
+                  width={480}
+                  height={360}
+                  sizes="(min-width:1280px) 24vw, (min-width:640px) 45vw, 92vw"
+                  className="h-40 w-full object-cover"
+                />
+              ) : (
+                <div aria-hidden className="flex h-40 w-full items-center justify-center bg-accent">
+                  <ImageIcon className="size-6 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex flex-1 flex-col gap-2 p-4">
+                <p className="truncate font-medium">{style.name}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={style.status === "active" ? "default" : "secondary"}>{style.status === "active" ? "Active" : "Draft"}</Badge>
+                  <Badge variant="secondary">{SETUP_STATUS[setupState]}</Badge>
+                </div>
+                <p className="mt-auto text-xs text-muted-foreground">{style.imageCount} images · {style.referenceCount} references</p>
+                {formatDate(style.updatedAt) && <p className="text-xs text-muted-foreground">Updated {formatDate(style.updatedAt)}</p>}
+              </div>
+            </Card>
+          </Link>
         </li>;
       })}
     </ul>

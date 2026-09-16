@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, LoaderCircle } from "lucide-react";
+import { ChevronDown, LoaderCircle, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,7 +19,11 @@ import { useAiJob } from "@/lib/ai/use-ai-job";
 import { StylePlanPreview } from "@/components/studio/StylePlanPreview";
 import type { ExecutionPlan } from "@/lib/ai/execution-plan";
 
+/** How many library images one request may borrow. */
+const MAX_LIBRARY_REFERENCES = 8;
+
 export type ComposerReference = { id: string; content_hash: string | null; signed_url: string | null };
+export type LibraryReference = { id: string; styleId: string; styleName: string; signedUrl: string };
 type SourceVersion = { id: string; prompt: string | null; metadata: Record<string, unknown> };
 
 type ReadyPlan = ExecutionPlan & { styleRevision: string; compiledPrompt: string; planHash: string; warnings?: string[] };
@@ -71,6 +76,12 @@ export default function StyleGroupComposer({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submittedHere, setSubmittedHere] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryOptions, setLibraryOptions] = useState<LibraryReference[]>([]);
+  const [libraryRefs, setLibraryRefs] = useState<LibraryReference[]>([]);
   const { job, setJob } = useAiJob(initialJob);
   const inputRevisionRef = useRef(0);
   const busyRef = useRef(false);
@@ -101,6 +112,35 @@ export default function StyleGroupComposer({
     setConfirmOpen(false);
   }, []);
 
+  const openLibrary = async () => {
+    setLibraryOpen(true);
+    invalidate();
+    setLibraryLoading(true);
+    setLibraryError(null);
+    try {
+      const response = await fetch(`/api/styles/${styleId}/references/library`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setLibraryError(`${body.error?.code ?? "LOAD_FAILED"}: ${body.error?.message ?? "Unable to load library references"}`);
+        return;
+      }
+      setLibraryOptions(Array.isArray(body.references) ? (body.references as LibraryReference[]) : []);
+    } catch {
+      setLibraryError("NETWORK_ERROR: Unable to load library references");
+    } finally {
+      setLibraryLoading(false);
+    }
+  };
+
+  const toggleLibraryReference = (reference: LibraryReference) => {
+    invalidate();
+    setLibraryRefs((current) => {
+      if (current.some((entry) => entry.id === reference.id)) return current.filter((entry) => entry.id !== reference.id);
+      if (current.length >= MAX_LIBRARY_REFERENCES) return current;
+      return [...current, reference];
+    });
+  };
+
   const resolvePlan = async (): Promise<ResolvedPlan | null> => {
     if (!prompt.trim() || !selectedModel || busyRef.current) return null;
     const revision = inputRevisionRef.current;
@@ -113,7 +153,7 @@ export default function StyleGroupComposer({
       const response = await fetch("/api/ai-execution-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation, requestedModelId: modelId, styleId, sourceVersionId: sourceVersion?.id, prompt: prompt.trim(), costMode: "strict_style", count, size, quality, preserveRequestedModel: true }),
+        body: JSON.stringify({ operation, requestedModelId: modelId, styleId, sourceVersionId: sourceVersion?.id, prompt: prompt.trim(), libraryReferenceIds: libraryRefs.map((reference) => reference.id), costMode: "strict_style", count, size, quality, preserveRequestedModel: true }),
         signal: controller.signal,
       });
       const body = await response.json().catch(() => ({}));
@@ -159,6 +199,7 @@ export default function StyleGroupComposer({
           quality,
           count,
           costMode: "strict_style",
+          libraryReferenceIds: libraryRefs.map((reference) => reference.id),
           consent: { planHash: readyPlan.planHash },
         }),
       });
@@ -283,6 +324,34 @@ export default function StyleGroupComposer({
               </li>
             ))}
           </ul>
+          {libraryRefs.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Also sent from the library</p>
+              <ul className="flex flex-wrap gap-2">
+                {libraryRefs.map((reference) => (
+                  <li key={reference.id} className="flex items-center gap-2 rounded-lg border border-border bg-accent py-1 pl-1 pr-2">
+                    <img src={reference.signedUrl} alt={`${reference.styleName} reference`} className="size-10 rounded object-cover" />
+                    <span className="max-w-32 truncate text-xs text-foreground">{reference.styleName}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove ${reference.styleName} reference`}
+                      onClick={() => toggleLibraryReference(reference)}
+                    >
+                      <X className="size-3.5" aria-hidden />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* A variation keeps the references of the image it varies, so borrowing is not offered. */}
+          {!sourceVersion && (
+            <Button type="button" variant="outline" className="w-fit" onClick={() => void openLibrary()}>
+              <Plus className="size-4" aria-hidden /> Choose from library
+            </Button>
+          )}
         </Card>
 
         {error && (
@@ -345,6 +414,58 @@ export default function StyleGroupComposer({
         {!confirmedRevision && <p className="text-xs text-muted-foreground">Confirm this style's references and analysis before generating images.</p>}
       </div>
 
+      <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose references from the library</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Images from other styles in this library are sent alongside this style&apos;s own references. Up to {MAX_LIBRARY_REFERENCES}.
+            </DialogDescription>
+          </DialogHeader>
+          <Input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Search by style name" aria-label="Search library references" />
+          {libraryError && (
+            <Alert variant="destructive" role="alert">
+              <AlertDescription className="text-xs">{libraryError}</AlertDescription>
+            </Alert>
+          )}
+          {libraryLoading && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+              <LoaderCircle className="size-4 animate-spin" aria-hidden /> Loading the library…
+            </p>
+          )}
+          {!libraryLoading && libraryOptions.length === 0 && !libraryError && (
+            <p className="text-sm text-muted-foreground">This library has no other reference images yet.</p>
+          )}
+          {libraryOptions.length > 0 && (
+            <ul className="grid max-h-80 grid-cols-3 gap-3 overflow-y-auto sm:grid-cols-4">
+              {libraryOptions
+                .filter((option) => option.styleName.toLowerCase().includes(libraryQuery.trim().toLowerCase()))
+                .map((option) => {
+                  const selected = libraryRefs.some((entry) => entry.id === option.id);
+                  return (
+                    <li key={option.id}>
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        aria-label={`${selected ? "Remove" : "Add"} ${option.styleName} reference`}
+                        onClick={() => toggleLibraryReference(option)}
+                        className={cn("block w-full overflow-hidden rounded-lg border text-left transition", selected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/60")}
+                      >
+                        <img src={option.signedUrl} alt="" className="aspect-square w-full object-cover" />
+                        <span className="block truncate px-2 py-1 text-xs text-muted-foreground">{option.styleName}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+          <DialogFooter>
+            <span className="mr-auto text-xs text-muted-foreground">{libraryRefs.length} selected</span>
+            <Button type="button" onClick={() => { setLibraryOpen(false); invalidate(); }}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
@@ -352,7 +473,7 @@ export default function StyleGroupComposer({
           </DialogHeader>
           <dl className="space-y-1 text-sm text-muted-foreground">
             <div className="flex justify-between gap-4"><dt>Model</dt><dd className="text-foreground">{selectedModel?.label ?? modelId}</dd></div>
-            <div className="flex justify-between gap-4"><dt>References</dt><dd className="text-foreground">{references.length}</dd></div>
+            <div className="flex justify-between gap-4"><dt>References</dt><dd className="text-foreground">{references.length}{libraryRefs.length > 0 ? ` + ${libraryRefs.length} from the library` : ""}</dd></div>
             <div className="flex justify-between gap-4"><dt>Images</dt><dd className="text-foreground">{count} · {size} · {quality}</dd></div>
           </dl>
           {readyPlan && <StylePlanPreview plan={readyPlan} />}

@@ -30,13 +30,15 @@ export type ModelCatalogEntry = {
   maxCount: 1 | 4;
   supportsReferenceImages?: boolean;
   maxInputImages?: number;
+  /** The provider can return the subject on a transparent background. */
+  supportsTransparentBackground?: boolean;
   supportsTemperature?: false;
 };
 
 const OPENAI_MODEL: ModelCatalogEntry = {
   id: "openai/gpt-image-2", label: "OpenAI GPT Image 2", provider: "openai",
   operations: ["text_to_image", "image_to_image", "inpaint"], sizes: ["1024x1024", "1536x1024", "1024x1536", "auto"],
-  qualities: ["low", "medium", "high", "auto"], maxCount: 4, supportsReferenceImages: true, maxInputImages: 16, supportsTemperature: false,
+  qualities: ["low", "medium", "high", "auto"], maxCount: 4, supportsReferenceImages: true, maxInputImages: 16, supportsTransparentBackground: true, supportsTemperature: false,
 };
 
 const GOOGLE_IMAGE_MODEL_IDS: Record<string, true> = {

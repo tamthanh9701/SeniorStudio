@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { createClient } from "@/supabase/server";
+import { getSignedUrls } from "@/lib/assets/service";
 import { enforceAiQuota } from "@/lib/ai/quota";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { runStyleVisionAction } from "@/lib/style/vision-actions";
@@ -14,7 +15,11 @@ const TuneSchema = z.object({
   generatedVersionIds: z.array(z.string().uuid()).min(1).max(4),
   uploadedSourceVersionIds: z.array(z.string().uuid()).min(0).max(4).optional(),
   feedback: z.string().trim().max(3000).optional(),
+  /** "prompt" restricts the proposal to the fields the compiled prompt is built from. */
+  focus: z.enum(["schema", "prompt"]).default("schema"),
 }).strict();
+
+const PROMPT_FOCUS_INSTRUCTION = `Prioritise changes to the fields that shape the compiled generation prompt (artistic_style.*, mood_atmosphere.*, lighting.*, color_palette.*, composition.*, material_texture.*, technical_quality.*, negative_prompt.*). Every suggested_value must be prompt-ready concrete text.`;
 
 const REFINE_PROMPT_SYSTEM = `You are a style prompt refinement expert. Compare [GENERATED] images against optional [FEEDBACK] target images and [REFERENCE] ground-truth images. Identify style drift, not subject differences.
 
@@ -43,7 +48,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
 
   const versionIds = parsed.data.generatedVersionIds;
   const { data: versions, error: versionsError } = await supabase
-    .from("asset_versions").select("id, asset_id, storage_path, prompt, metadata, assets!inner(style_id)").in("id", versionIds);
+    .from("asset_versions").select("id, asset_id, storage_path, prompt, metadata, assets!asset_versions_asset_id_fkey!inner(style_id)").in("id", versionIds);
   if (versionsError || (versions?.length ?? 0) !== versionIds.length) {
     return NextResponse.json({ error: { code: "NOT_FOUND", message: "One or more generated versions not found" } }, { status: 404 });
   }
@@ -57,7 +62,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   const uploadedVersions: Array<{ storage_path: string; prompt: string | null }> = [];
   if (uploadedIds.length > 0) {
     const { data: sources, error: sourcesError } = await supabase
-      .from("asset_versions").select("id, storage_path, prompt, assets!inner(style_id)").in("id", uploadedIds);
+      .from("asset_versions").select("id, storage_path, prompt, assets!asset_versions_asset_id_fkey!inner(style_id)").in("id", uploadedIds);
     if (sourcesError || (sources?.length ?? 0) !== uploadedIds.length) {
       return NextResponse.json({ error: { code: "NOT_FOUND", message: "One or more uploaded source versions not found" } }, { status: 404 });
     }
@@ -73,17 +78,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   }
 
   const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId).is("retired_at", null).order("created_at");
-  const referenceUrls = await Promise.all((references ?? []).slice(0, 4).map(async (reference) => {
-    const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(reference.storage_path, 300);
-    return data?.signedUrl ?? null;
-  }));
-  const validReferenceUrls = referenceUrls.filter((url): url is string => Boolean(url));
-
-  const generatedUrls = await Promise.all((versions ?? []).map(async (version) => {
-    const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(version.storage_path, 300);
-    return data?.signedUrl ?? null;
-  }));
-  const validGeneratedUrls = generatedUrls.filter((url): url is string => Boolean(url));
+  const referencePaths = (references ?? []).slice(0, 4).map((reference) => reference.storage_path);
+  const generatedPaths = (versions ?? []).map((version) => version.storage_path);
+  // One signing round-trip for both groups; the vision call needs absolute URLs.
+  const signed = await getSignedUrls(supabase, [...generatedPaths, ...referencePaths]);
+  const validGeneratedUrls = generatedPaths.map((path) => signed.get(path)).filter((url): url is string => Boolean(url));
+  const validReferenceUrls = referencePaths.map((path) => signed.get(path)).filter((url): url is string => Boolean(url));
 
   const provenance = (versions ?? []).map((version, index) => ({
     versionId: version.id,
@@ -107,7 +107,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     const suggestion = await runStyleVisionAction({
       client: supabase,
       workspaceId: style.workspace_id,
-      systemPrompt: REFINE_PROMPT_SYSTEM,
+      systemPrompt: parsed.data.focus === "prompt" ? `${REFINE_PROMPT_SYSTEM}\n\n${PROMPT_FOCUS_INSTRUCTION}` : REFINE_PROMPT_SYSTEM,
       userMessage: message,
       imageUrls: [...validGeneratedUrls, ...uploadedVersions.map((source) => source.storage_path), ...validReferenceUrls],
     });
@@ -120,7 +120,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       style_id: styleId,
       base_updated_at: style.updated_at,
       kind: "tuning",
-      payload: { evidence: lastFidelity, issues, changes },
+      payload: { evidence: lastFidelity, issues, changes, focus: parsed.data.focus },
       created_by: (await supabase.auth.getUser()).data.user?.id ?? null,
     }).select().single();
     if (proposalError) {
