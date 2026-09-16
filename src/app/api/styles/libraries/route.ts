@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const CreateLibrarySchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -14,7 +15,7 @@ function flagDisabled() {
 export async function GET() {
   if (!styleProfilesEnabled()) return flagDisabled();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const { data, error } = await supabase
@@ -31,7 +32,7 @@ export async function GET() {
 export async function POST(request: Request) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const parsed = CreateLibrarySchema.safeParse(await request.json().catch(() => null));

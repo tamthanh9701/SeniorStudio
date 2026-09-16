@@ -2,10 +2,11 @@
 import { NextResponse } from "next/server";
 import { getModelCatalog, resolveUserWorkspaceId } from "@/lib/ai/models";
 import { createClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function GET() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   try {
     const workspaceId = await resolveUserWorkspaceId(supabase, user.id);

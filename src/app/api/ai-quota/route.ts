@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { resolveUserWorkspaceId } from "@/lib/ai/models";
 import { getAiQuotaLimit } from "@/lib/ai/quota";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function GET() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const workspaceId = await resolveUserWorkspaceId(supabase, user.id);

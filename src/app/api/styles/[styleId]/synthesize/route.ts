@@ -12,6 +12,7 @@ import { normalizePromptSchema } from "@/lib/style/normalize-prompt-schema";
 import { lintAndFixStyleSchema } from "@/lib/style/linter";
 import { StyleError, styleErrorStatus } from "@/lib/style/errors";
 import { enforceAiQuota } from "@/lib/ai/quota";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const SynthesizeSchema = z.object({
   expectedUpdatedAt: z.string().min(1),
@@ -48,7 +49,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   if (!styleProfilesEnabled()) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const parsed = SynthesizeSchema.safeParse(await request.json().catch(() => null));

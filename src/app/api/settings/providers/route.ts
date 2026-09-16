@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AiProviderSchema } from "@/db/ai-jobs";
 import { createClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const SaveSchema = z.object({ provider: AiProviderSchema, apiKey: z.string().trim().min(1).max(512) });
 
 export async function GET() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const { data, error } = await supabase.from("provider_settings").select("provider, updated_at").order("provider");
   if (error) return NextResponse.json({ error: { code: "LOAD_FAILED", message: error.message } }, { status: 500 });
@@ -16,7 +17,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const parsed = SaveSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Provider and API key are required" } }, { status: 400 });
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const parsed = AiProviderSchema.safeParse(new URL(request.url).searchParams.get("provider"));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Unknown provider" } }, { status: 400 });

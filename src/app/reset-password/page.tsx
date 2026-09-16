@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { LoaderCircle } from "lucide-react";
 import { createClient } from "@/supabase/client";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,8 +23,8 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
+    void getVerifiedUser(supabase).then((user) => {
+      if (!user) {
         router.replace("/login?error=session_expired");
         router.refresh();
         return;

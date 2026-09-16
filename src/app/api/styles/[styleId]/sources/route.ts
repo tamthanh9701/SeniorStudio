@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { resolveUserWorkspaceId } from "@/lib/ai/models";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export const maxDuration = 60;
 
@@ -12,7 +13,7 @@ const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 export async function GET(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const workspaceId = await resolveUserWorkspaceId(supabase, user.id);
@@ -53,7 +54,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ styl
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const workspaceId = await resolveUserWorkspaceId(supabase, user.id);
@@ -129,7 +130,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
 export async function DELETE(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const workspaceId = await resolveUserWorkspaceId(supabase, user.id);

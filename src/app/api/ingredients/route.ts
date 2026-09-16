@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { CreateIngredientInputSchema } from "@/db/ingredients";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -8,6 +8,7 @@ import { STORAGE_BUCKET } from "@/db/schema";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS, MAX_STYLE_REFERENCES } from "@/lib/style/reference-limits";
 import { mapWithConcurrency } from "@/lib/utils";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const MAX_REFERENCES = MAX_STYLE_REFERENCES;
 const MAX_FILE_BYTES = MAX_REFERENCE_BYTES;
@@ -33,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const { data: style } = await supabase.from("styles").select("id, workspace_id").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });

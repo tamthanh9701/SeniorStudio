@@ -4,10 +4,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/supabase/server";
 import { getSignedUrls } from "@/lib/assets/service";
 import ProjectsDashboard from "@/components/studio/ProjectsDashboard";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export default async function ProjectsPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     redirect("/login");

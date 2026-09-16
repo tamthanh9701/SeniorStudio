@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { listStyleAssets } from "@/lib/style/style-assets";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function GET(
   request: NextRequest,
@@ -8,9 +9,7 @@ export async function GET(
 ) {
   const { styleId } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     return NextResponse.json(

@@ -28,7 +28,7 @@ beforeEach(() => {
   remove.mockResolvedValue({ error: null });
   deleteRow.mockReturnValue({ eq: vi.fn(async () => ({ error: null })) });
   client = {
-    auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) },
+    auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) },
     from: vi.fn(() => ({ select: vi.fn(() => ({ eq: vi.fn(() => ({ single: vi.fn(async () => ({ data: existingJob() })) })) })) })),
     rpc: vi.fn(async () => ({ data: { ...existingJob(), status: "canceled" }, error: null })),
   };

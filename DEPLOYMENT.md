@@ -135,7 +135,14 @@ protected environment, and refuse to touch anything unless these are set (run th
 The database and online suites are skipped by default; they need `RUN_DB_INTEGRATION=1`
 (with `TEST_DATABASE_URL`; `STAGING_DB_CA` is optional and only switches the connection
 to verify the server certificate) and `RUN_ONLINE_E2E=1` with an HTTPS
-`STAGING_APP_URL`.
+`STAGING_APP_URL`. Locally, `pnpm test:db` runs the three suites in `tests/integration`
+against whatever `TEST_DATABASE_URL` points at; every fixture is created and removed by
+the suite, and the quota assertions own a throwaway workspace, so a run leaves
+`workspace_ai_usage` untouched.
+
+The same suites run in `ci.yml` on every push **when the repository has a
+`TEST_DATABASE_URL` secret** (the step is skipped without one). Set it to a staging
+database, not production.
 
 ## Auth: the per-request round trip (infrastructure item, not a code change)
 

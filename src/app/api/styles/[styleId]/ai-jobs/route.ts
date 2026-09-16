@@ -6,6 +6,7 @@ import { createClient } from "@/supabase/server";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { apiErrorFrom } from "@/lib/http/api-errors";
 import { z } from "zod";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const ContentOverridesSchema = z.record(z.string(), z.unknown()).nullable().optional();
 const ReferenceIdsSchema = z.array(z.string().uuid());
@@ -21,7 +22,7 @@ export const maxDuration = 120;
 export async function GET(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   // No style lookup: the job query is already scoped by style_id and RLS, and a
   // style without jobs answers with an empty feed.
@@ -37,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ styl
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const parsed = StyleGroupJobSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });

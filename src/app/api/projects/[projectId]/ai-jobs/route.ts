@@ -6,11 +6,12 @@ import { getEnv } from "@/env";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { apiErrorFrom } from "@/lib/http/api-errors";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function GET(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const { data: project } = await supabase.from("projects").select("id").eq("id", projectId).maybeSingle();
   if (!project) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, { status: 404 });
@@ -28,7 +29,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
 export async function POST(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const parsed = TextToImageEnqueueSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });

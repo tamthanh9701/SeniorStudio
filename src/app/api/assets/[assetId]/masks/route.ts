@@ -3,11 +3,12 @@ import sharp from "sharp";
 import { MaskUploadSchema } from "@/db/ai-jobs";
 import { STORAGE_BUCKET } from "@/db/schema";
 import { createClient, getServiceClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function POST(request: Request, { params }: { params: Promise<{ assetId: string }> }) {
   const { assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const parsed = MaskUploadSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });

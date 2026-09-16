@@ -8,6 +8,7 @@ import { AiJobSchema, FEED_COLUMNS, FEED_LIMIT, type ProjectJobFeedItem } from "
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { getStyleSetupState, type StyleSetupState } from "@/lib/style/confirmed-definition";
 import { getStyleDetail, listStyleAssets } from "@/lib/style/style-assets";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const WORKSPACE_TABS: readonly WorkspaceTab[] = ["images", "references", "style"];
 
@@ -29,7 +30,7 @@ export default async function StyleGroupPage({
   const { styleId } = await params;
   const query = await searchParams;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   // Older links and bookmarks used `tab=gallery`; the gallery is now the Images tab.

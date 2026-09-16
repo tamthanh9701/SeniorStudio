@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "RUN_DB_INTEGRATION=1 vitest run tests/integration",
     "db:staging:apply": "tsx scripts/apply-staging-migrations.ts UPGRADE",
     "db:staging:verify": "tsx scripts/verify-staging-target.ts"
   },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { filterOwnedStoragePaths } from "@/lib/assets/ownership";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { STORAGE_BUCKET } from "@/db/schema";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function DELETE(
   request: NextRequest,
@@ -9,7 +10,7 @@ export async function DELETE(
 ) {
   const { projectId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

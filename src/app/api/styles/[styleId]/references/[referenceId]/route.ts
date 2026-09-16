@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 function flagDisabled() {
   return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
@@ -13,7 +14,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId, referenceId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const { error } = await supabase.rpc("retire_style_reference", { p_style_id: styleId, p_reference_id: referenceId });
   if (error) {

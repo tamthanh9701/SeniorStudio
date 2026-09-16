@@ -14,6 +14,7 @@ import ExportTransparentDialog from "@/components/style/ExportTransparentDialog"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format/datetime";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 /** Reads an optional string out of the untyped jsonb provenance columns. */
 const text = (value: unknown) => (typeof value === "string" && value.length > 0 ? value : null);
@@ -46,7 +47,7 @@ export default async function StyleAssetDetailPage({
   const { styleId, assetId } = await params;
   const { version: versionParam, review: reviewParam } = await searchParams;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const [{ data: asset }, { data: style }] = await Promise.all([

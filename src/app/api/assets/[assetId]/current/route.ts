@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 // Selective update: the caller states the current version it observed so two
 // reviewers cannot silently overwrite each other's decision.
@@ -14,7 +15,7 @@ export async function PUT(
 ) {
   const { assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });

@@ -8,14 +8,14 @@ vi.mock("@/supabase/server", () => ({
 import { enforceAiQuota } from "../src/lib/ai/quota";
 import { createClient, getServiceClient } from "@/supabase/server";
 
-const mockGetUser = vi.fn();
+const mockGetClaims = vi.fn();
 const mockRpc = vi.fn();
 const mockSelect = vi.fn();
 const mockEq = vi.fn();
 const mockMaybeSingle = vi.fn();
 
 function setupAuthenticatedUser(userId = "user-1") {
-  mockGetUser.mockResolvedValue({ data: { user: { id: userId } }, error: null });
+  mockGetClaims.mockResolvedValue({ data: { claims: { sub: userId } }, error: null });
 }
 
 function setupWorkspaceMember(workspaceId = "ws-1") {
@@ -30,7 +30,7 @@ function setupQuotaStatus(status: Record<string, { limit: number; held: number; 
 
 beforeEach(() => {
   vi.clearAllMocks();
-  (createClient as ReturnType<typeof vi.fn>).mockReturnValue({ auth: { getUser: mockGetUser } });
+  (createClient as ReturnType<typeof vi.fn>).mockReturnValue({ auth: { getClaims: mockGetClaims } });
   (getServiceClient as ReturnType<typeof vi.fn>).mockReturnValue({
     rpc: mockRpc,
     from: vi.fn(() => ({ select: mockSelect, eq: mockEq, maybeSingle: mockMaybeSingle })),
@@ -98,7 +98,7 @@ describe("enforceAiQuota", () => {
   });
 
   it("returns 401 when user is not authenticated", async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+    mockGetClaims.mockResolvedValue({ data: null, error: null });
 
     const result = await enforceAiQuota(fakeRequest(), "image");
     expect(result.ok).toBe(false);

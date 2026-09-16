@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { STORAGE_BUCKET } from "@/db/schema";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 export async function POST(_request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const { data: existing } = await supabase.from("ai_jobs").select("*").eq("id", jobId).single();
   if (!existing) return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });

@@ -37,7 +37,7 @@ const serviceClient = {
 let client: Record<string, unknown>;
 
 function makeClient() {
-  return { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn(async () => ({ data: { id: "style-1", schema: JSON.parse(VALID_SCHEMA), status: "draft" }, error: null })) };
+  return { auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) }, from: vi.fn(), rpc: vi.fn(async () => ({ data: { id: "style-1", schema: JSON.parse(VALID_SCHEMA), status: "draft" }, error: null })) };
 }
 
 const onePixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZlS8AAAAASUVORK5CYII=", "base64");

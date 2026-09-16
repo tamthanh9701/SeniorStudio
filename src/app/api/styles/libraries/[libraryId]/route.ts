@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const UpdateLibrarySchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -16,7 +17,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ li
   if (!styleProfilesEnabled()) return flagDisabled();
   const { libraryId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const parsed = UpdateLibrarySchema.safeParse(await request.json().catch(() => null));
@@ -45,7 +46,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!styleProfilesEnabled()) return flagDisabled();
   const { libraryId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   // Library deletion cascades to styles via ON DELETE SET NULL (library_id -> null)

@@ -142,7 +142,7 @@ describe("style asset review page", () => {
   });
 
   const client = (tables: Record<string, Row[]>) => ({
-    auth: { getUser: async () => ({ data: { user: { id: "u1", email: "qa@example.com" } } }) },
+    auth: { getClaims: async () => ({ data: { claims: { sub: "u1", email: "qa@example.com" } }, error: null }) },
     from(table: string) {
       const filters: Array<[string, unknown]> = [];
       const resolve = () => (tables[table] ?? []).filter((row) => filters.every(([column, value]) => row[column] === value));

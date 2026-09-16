@@ -8,6 +8,7 @@ import { scoreStyleOperability } from "@/lib/style/operability-scorer";
 import type { PromptSchema } from "@/lib/style/prompt-schema";
 import { applyStyleSchemaPatch, type StyleSchemaPatch } from "@/lib/style/schema-patch";
 import { StyleError, styleErrorStatus } from "@/lib/style/errors";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const ApplySchema = z.object({
   selectedChangeIds: z.array(z.string()),
@@ -17,7 +18,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   if (!styleProfilesEnabled()) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
   const { styleId, proposalId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const parsed = ApplySchema.safeParse(await request.json().catch(() => null));

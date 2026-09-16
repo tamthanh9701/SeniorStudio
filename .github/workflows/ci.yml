@@ -21,6 +21,10 @@ jobs:
       OWNER_EMAIL: ci@example.com
       AI_WORKER_SECRET: ci-worker-secret
       CRON_SECRET: ci-cron-secret
+      # Empty unless the repository has the secret; the database step below is
+      # skipped without it. Point it at a staging project: the suites write and
+      # delete their own fixtures.
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,5 +40,8 @@ jobs:
         run: pnpm lint --max-warnings 0
       - name: Unit tests
         run: pnpm test
+      - name: Database behaviour suites
+        if: env.TEST_DATABASE_URL != ''
+        run: pnpm test:db
       - name: Build
         run: pnpm build

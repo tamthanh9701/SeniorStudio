@@ -7,6 +7,7 @@ import { styleProfilesEnabled } from "@/lib/style/flag";
 import { analyzeStyleProfile } from "@/lib/style/service";
 import { StyleError, styleErrorStatus } from "@/lib/style/errors";
 import { enforceAiQuota } from "@/lib/ai/quota";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export const maxDuration = 180;
 
@@ -22,7 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   if (!quota.ok) return quota.response;
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const parsed = AnalyzeSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "userContext must be at most 2000 characters" } }, { status: 400 });

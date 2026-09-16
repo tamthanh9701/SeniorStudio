@@ -17,7 +17,7 @@ vi.mock("../src/lib/ai/credentials", () => ({ getProviderApiKey: (provider: unkn
 import { resolveImageExecutionPlan } from "../src/lib/ai/execution-plan";
 import { INPAINT_MODELS } from "../src/lib/ai/models";
 
-const client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) } } as never;
+const client = { auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) } } as never;
 const request = {
   operation: "image_to_image" as const,
   requestedModelId: "openai/gpt-image-2",

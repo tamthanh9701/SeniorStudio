@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/supabase/server";
 import { AiJobSchema } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const { data: job } = await supabase.from("ai_jobs").select("*").eq("id", jobId).single();
   const parsed = AiJobSchema.safeParse(job);

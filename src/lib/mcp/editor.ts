@@ -31,6 +31,7 @@ export function registerMcpEditor(server: McpServer) {
 </head>
 <body>
   <div class="card">
+    <!-- An HTML document for the widget: next/image cannot render here. -->
     <img class="image" id="image" src="" alt="Asset" />
     <div class="info">
       <div class="title" id="title">Asset</div>

@@ -8,6 +8,7 @@ import { styleProfilesEnabled } from "@/lib/style/flag";
 import { runStyleVisionAction } from "@/lib/style/vision-actions";
 import { evaluateStyleFidelity } from "@/lib/style/fidelity-evaluator";
 import type { StyleFingerprint } from "@/lib/style/fingerprint";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export const maxDuration = 180;
 
@@ -121,7 +122,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       base_updated_at: style.updated_at,
       kind: "tuning",
       payload: { evidence: lastFidelity, issues, changes, focus: parsed.data.focus },
-      created_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+      created_by: (await getVerifiedUser(supabase))?.id ?? null,
     }).select().single();
     if (proposalError) {
       return NextResponse.json({ error: { code: "SAVE_FAILED", message: proposalError.message } }, { status: 500 });

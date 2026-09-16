@@ -6,6 +6,7 @@ import { resolveImageExecutionPlan } from "@/lib/ai/execution-plan";
 import { apiErrorFrom } from "@/lib/http/api-errors";
 import { AiOperationSchema } from "@/db/ai-jobs";
 import { z } from "zod";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const PlanRequestSchema = z.object({
   operation: AiOperationSchema,
@@ -32,7 +33,7 @@ const PlanRequestSchema = z.object({
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const parsed = PlanRequestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });

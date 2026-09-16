@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, getServiceClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export type AiRouteGroup = "brain" | "image";
 
@@ -58,7 +59,7 @@ export type QuotaGate =
 
 export async function enforceAiQuota(_request: Request, group: AiRouteGroup): Promise<QuotaGate> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) {
     return {
       ok: false,

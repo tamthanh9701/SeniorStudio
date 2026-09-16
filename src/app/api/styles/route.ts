@@ -6,6 +6,7 @@ import { createClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 import { getStyleSetupState } from "@/lib/style/confirmed-definition";
 import { getSignedUrls } from "@/lib/assets/service";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const GetStylesSchema = z.object({
   libraryId: z.string().uuid().optional(),
@@ -70,7 +71,7 @@ async function loadStyleCovers(supabase: Awaited<ReturnType<typeof createClient>
  export async function GET(request: Request) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const params = GetStylesSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
   const libraryId = params.success ? params.data.libraryId : undefined;
@@ -109,7 +110,7 @@ const CreateStyleSchema = z.object({
  export async function POST(request: Request) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const parsed = CreateStyleSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Name must be 1-100 characters" } }, { status: 400 });

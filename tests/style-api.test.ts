@@ -57,12 +57,12 @@ function jsonRequest(url: string, body?: unknown, method = "POST") {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  client = { auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) }, from: vi.fn(), rpc: vi.fn(() => rpcNode({ data: { id: "s1", status: "active" }, error: null })) };
+  client = { auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) }, from: vi.fn(), rpc: vi.fn(() => rpcNode({ data: { id: "s1", status: "active" }, error: null })) };
 });
 
 describe("GET /api/styles", () => {
   it("returns 401 when unauthenticated", async () => {
-    (client.auth as { getUser: ReturnType<typeof vi.fn> }).getUser.mockResolvedValue({ data: { user: null } });
+    (client.auth as { getClaims: ReturnType<typeof vi.fn> }).getClaims.mockResolvedValue({ data: null, error: null });
     const response = await GET(new Request("http://localhost/api/styles"));
     expect(response.status).toBe(401);
   });

@@ -3,10 +3,11 @@ export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { createClient, getServiceClient } from "@/supabase/server";
 import SettingsSurface from "@/components/studio/SettingsSurface";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     redirect("/login");

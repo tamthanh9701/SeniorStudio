@@ -32,7 +32,7 @@ vi.mock("@/lib/style/cost-modes", () => ({
 
 vi.mock("@/supabase/server", () => ({
   createClient: vi.fn(async () => ({
-    auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) },
+    auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) },
     from: (...args: unknown[]) => mockFrom(...args),
     rpc: (...args: unknown[]) => mockRpc(...args),
   })),
@@ -147,7 +147,7 @@ describe("resolveImageExecutionPlan", () => {
   it("throws SOURCE_REQUIRED when operation is image_to_image but sourceVersionId missing", async () => {
     const { resolveImageExecutionPlan } = await import("@/lib/ai/execution-plan");
     const client = {
-      auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) },
+      auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) },
       from: mockFrom,
     } as never;
     await expect(
@@ -165,7 +165,7 @@ describe("resolveImageExecutionPlan", () => {
   it("returns correct plan with sourceVersionId populated", async () => {
     const { resolveImageExecutionPlan } = await import("@/lib/ai/execution-plan");
     const client = {
-      auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) },
+      auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) },
       from: mockFrom,
     } as never;
     const plan = await resolveImageExecutionPlan(client, {

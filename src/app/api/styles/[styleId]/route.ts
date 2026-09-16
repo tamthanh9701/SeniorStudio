@@ -12,6 +12,7 @@ import { STORAGE_BUCKET } from "@/db/schema";
 import { filterOwnedStoragePaths } from "@/lib/assets/ownership";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 const PatchStyleSchema = z
   .object({ name: z.string().trim().min(1).max(100).optional(), status: z.enum(["draft", "active"]).optional(), libraryId: z.string().uuid().nullable().optional(), schema: z.record(z.string(), z.unknown()).optional(), expectedUpdatedAt: z.string().min(1).optional() })
   .strict();
@@ -24,7 +25,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sty
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const style = await getStyleDetail(supabase, styleId);
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
@@ -35,7 +36,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ st
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const parsed = PatchStyleSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Only name, status, libraryId, and schema may be updated" } }, { status: 400 });
@@ -146,7 +147,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   // Deleting is not reversible and takes the reference images and every image

@@ -5,10 +5,11 @@ import ModuleContextSidebar from "@/components/studio/ModuleContextSidebar";
 import StylePanel from "@/components/studio/StylePanel";
 import StudioShell from "@/components/studio/StudioShell";
 import { createClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export default async function StylePage({ searchParams }: { searchParams: Promise<{ deleted?: string; images?: string; references?: string }> }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
   const query = await searchParams;
   // The style workspace unmounts on the way here, so it hands the confirmation

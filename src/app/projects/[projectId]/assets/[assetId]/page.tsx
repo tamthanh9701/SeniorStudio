@@ -10,6 +10,7 @@ import ProjectSidebar from "@/components/studio/ProjectSidebar";
 import StudioShell from "@/components/studio/StudioShell";
 import { Button } from "@/components/ui/button";
 import ExportTransparentDialog from "@/components/style/ExportTransparentDialog";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export default async function AssetDetailPage({
   params,
@@ -18,7 +19,7 @@ export default async function AssetDetailPage({
  }) {
   const { projectId, assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     redirect("/login");

@@ -5,11 +5,12 @@ import { createClient, getServiceClient } from "@/supabase/server";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
 import { apiErrorFrom } from "@/lib/http/api-errors";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function POST(request: Request, { params }: { params: Promise<{ assetId: string }> }) {
   const { assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
   const body = await request.json().catch(() => null);
   // One route, two shapes: an edit carries a mask, a variation carries only a

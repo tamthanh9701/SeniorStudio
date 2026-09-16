@@ -8,6 +8,7 @@ import { getModelCatalog } from "@/lib/ai/models";
 import { AiJobSchema, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import ProjectWorkspace from "@/components/studio/ProjectWorkspace";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 interface ProjectPageProps {
   params: Promise<{ projectId: string }>;
@@ -16,9 +17,7 @@ interface ProjectPageProps {
 export default async function ProjectPage({ params }: ProjectPageProps) {
   const { projectId } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) redirect("/login");
 

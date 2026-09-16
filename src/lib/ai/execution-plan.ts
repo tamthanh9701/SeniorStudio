@@ -4,6 +4,7 @@ import { COST_MODE_OPTIONS, getReferenceLimit, type CostMode } from "@/lib/style
 import { getModelCatalog, resolveUserWorkspaceId, type ModelCatalogEntry } from "@/lib/ai/models";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 import { providerForModel, type SupportedModelId, type AiOperation, type SupportedQuality, type SupportedSize } from "@/db/ai-jobs";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 /** The style row carries only the library identity this check needs. */
 const StyleLibraryRowSchema = z.object({ library_id: z.string().uuid().nullable() });
@@ -81,9 +82,9 @@ export async function resolveImageExecutionPlan(
   if (!/^(openai\/gpt-image-2|google\/[a-z0-9._-]+)$/.test(request.requestedModelId)) throw new Error("INVALID_MODEL");
   if (request.operation === "image_to_image" && !request.sourceVersionId) throw new Error("SOURCE_REQUIRED");
 
-  const { data: auth } = await client.auth.getUser();
-  if (!auth.user) throw new Error("UNAUTHORIZED");
-  const workspaceId = await resolveUserWorkspaceId(client, auth.user.id);
+  const user = await getVerifiedUser(client);
+  if (!user) throw new Error("UNAUTHORIZED");
+  const workspaceId = await resolveUserWorkspaceId(client, user.id);
   if (!workspaceId) throw new Error("NOT_FOUND");
   const provider = providerForModel(requested);
   if (!(await getProviderApiKey(provider, { user: client, workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");

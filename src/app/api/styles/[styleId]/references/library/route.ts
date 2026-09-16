@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createClient } from "@/supabase/server";
 import { getSignedUrls } from "@/lib/assets/service";
 import { styleProfilesEnabled } from "@/lib/style/flag";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 const MAX_LIBRARY_REFERENCES = 200;
 
@@ -29,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sty
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
 
   const { data: style } = await supabase.from("styles").select("id, library_id").eq("id", styleId).maybeSingle();

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 /**
  * Composition moved into the style workspace.  This route keeps existing links
@@ -19,7 +20,7 @@ export default async function StyleNewImagePage({
   const { styleId } = await params;
   const { sourceVersionId } = await searchParams;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const { data: style } = await supabase.from("styles").select("id").eq("id", styleId).maybeSingle();

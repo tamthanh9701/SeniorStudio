@@ -60,7 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   styles = builder({ data: { schema: candidateSchema(), confirmed_definition: confirmedDefinition() }, error: null });
   client = {
-    auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })) },
+    auth: { getClaims: vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null })) },
     from: vi.fn(() => styles),
   };
 });

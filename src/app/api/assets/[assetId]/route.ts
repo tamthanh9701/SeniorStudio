@@ -9,7 +9,7 @@ export async function GET(
 ) {
   const { assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -46,6 +46,7 @@ export async function GET(
 import { getServiceClient } from "@/supabase/server";
 import { filterOwnedStoragePaths } from "@/lib/assets/ownership";
 import { STORAGE_BUCKET } from "@/db/schema";
+import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 /** Only the owning container is needed to decide which objects this asset may remove. */
 const AssetOwnerSchema = z.object({
@@ -62,7 +63,7 @@ export async function DELETE(
 ) {
   const { assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
@@ -163,7 +164,7 @@ export async function PATCH(
 ) {
   const { assetId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser(supabase);
   if (!user) {
     return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   }
