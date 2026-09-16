@@ -12,6 +12,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type LibraryItem = { id: string; name: string; sort_order: number };
@@ -40,6 +42,9 @@ function setupStateOf(style: StyleListItem): StyleSetupState {
 }
 
 export default function StylePanel() {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryName, setLibraryName] = useState("");
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const router = useRouter();
   const [styles, setStyles] = useState<StyleListItem[]>([]);
   const [newName, setNewName] = useState("");
@@ -66,6 +71,26 @@ export default function StylePanel() {
       setStylesLoading(false);
     }
   }, []);
+
+  const createLibrary = async () => {
+    const name = libraryName.trim();
+    if (!name || busy !== null) return;
+    setBusy("library");
+    setLibraryError(null);
+    try {
+      const response = await fetch("/api/styles/libraries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`${body.error?.code ?? "CREATE_FAILED"}: ${body.error?.message ?? "Unable to create the library"}`);
+      setLibraryName("");
+      setLibraryOpen(false);
+      await loadLibraries();
+      setFeedback({ kind: "success", text: `Library “${name}” created. Assign styles to it from a style's settings.` });
+    } catch (error) {
+      setLibraryError(error instanceof Error ? error.message : "Unable to create the library");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const loadLibraries = useCallback(async () => {
     const response = await fetch("/api/styles/libraries", { cache: "no-store" });
@@ -125,16 +150,48 @@ export default function StylePanel() {
         </SelectContent>
       </Select>
     </div>
-    {libraries.length > 0 && <ToggleGroup
+    <div className="flex flex-wrap items-center gap-2">
+      <ToggleGroup
       type="single"
       spacing={1}
       value={activeLibraryId ?? ALL_LIBRARIES}
       onValueChange={(next) => { if (next) setActiveLibraryId(next === ALL_LIBRARIES ? null : next); }}
-      className="flex w-fit max-w-full justify-start overflow-x-auto pb-2"
+      className="flex w-fit max-w-full justify-start overflow-x-auto"
     >
-      <ToggleGroupItem value={ALL_LIBRARIES} className="min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary">All libraries</ToggleGroupItem>
+      <ToggleGroupItem value={ALL_LIBRARIES} className="min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary">All styles</ToggleGroupItem>
       {libraries.map((library) => <ToggleGroupItem key={library.id} value={library.id} className="min-h-11 shrink-0 rounded-lg px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary">{library.name}</ToggleGroupItem>)}
-    </ToggleGroup>}
+      </ToggleGroup>
+      <Button type="button" variant="outline" size="sm" onClick={() => setLibraryOpen(true)}>
+        <Plus className="size-3.5" aria-hidden /> New library
+      </Button>
+    </div>
+    <Dialog open={libraryOpen} onOpenChange={(open) => { setLibraryOpen(open); if (!open) { setLibraryName(""); setLibraryError(null); } }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New library</DialogTitle>
+          <DialogDescription>Libraries group styles so a long list stays navigable. You can assign a style to one from its settings.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="library-name" className="text-xs font-semibold">Library name</Label>
+          <Input
+            id="library-name"
+            value={libraryName}
+            maxLength={100}
+            onChange={(event) => setLibraryName(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") void createLibrary(); }}
+            placeholder="e.g. Client work, Illustration sets"
+          />
+        </div>
+        {libraryError && <Alert variant="destructive"><AlertDescription>{libraryError}</AlertDescription></Alert>}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setLibraryOpen(false)} disabled={busy !== null}>Cancel</Button>
+          <Button type="button" onClick={() => void createLibrary()} disabled={!libraryName.trim() || busy !== null}>
+            {busy === "library" ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : null} Create library
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     {stylesLoading && styles.length === 0 && <div aria-hidden className="space-y-2"><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div>}
     {!stylesLoading && visibleStyles.length === 0 && <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No matching style groups.</p>}
     <ul className="space-y-3">

@@ -5,10 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import ProviderSettings from "@/components/studio/ProviderSettings";
+import { createClient } from "@/supabase/client";
 import ProjectSidebar from "@/components/studio/ProjectSidebar";
 import StudioShell from "@/components/studio/StudioShell";
 import ThemeSelect from "@/components/theme/ThemeSelect";
-import { createClient } from "@/supabase/client";
 import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/format/datetime";
 
@@ -30,6 +30,8 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
     const timer = window.setInterval(() => { if (mountedRef.current) setNow(Date.now()); }, 30_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const signOut = async () => { await createClient().auth.signOut(); window.location.assign("/login"); };
 
   const refresh = useCallback(async () => {
     if (busyRef.current) return;
@@ -69,7 +71,6 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
       : heartbeatState === "healthy"
         ? "The scheduled worker is running and claiming jobs."
         : "No heartbeat in the last 5 minutes. New jobs will stay queued until the worker runs again.";
-  const signOut = async () => { await createClient().auth.signOut(); window.location.assign("/login"); };
   const sidebar = <ProjectSidebar activeModule="playground" userEmail={userEmail} />;
   const center = <div className="h-full overflow-y-auto pb-24 xl:pb-0">
     <div className="mx-auto max-w-6xl space-y-6 px-5 py-8 sm:px-8 sm:py-10">
@@ -87,9 +88,9 @@ export default function SettingsSurface({ projects, userEmail, heartbeat: initia
         </div>
         <div className="flex items-center gap-4 p-5">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary text-muted-foreground"><Mail className="size-5" /></span>
-          <div className="min-w-0"><p className="font-medium">Signed in as</p><p className="mt-1 text-sm text-muted-foreground">{userEmail}</p></div>
+          <div className="min-w-0"><p className="font-medium">Signed in as</p><p className="mt-1 text-sm text-muted-foreground">{userEmail}</p></div><Button variant="outline" onClick={signOut}><LogOut className="size-4" aria-hidden /> Sign out</Button>
         </div>
-        <div className="flex items-center gap-4 p-5"><Button variant="outline" onClick={signOut}><LogOut className="size-4" /> Sign out</Button></div>
+
       </Card>
     </div>
   </div>;

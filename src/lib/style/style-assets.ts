@@ -31,6 +31,10 @@ export type StyleGalleryAsset = {
   createdAt: string;
   parentVersionId: string | null;
   sourceAssetId: string | null;
+  /** Set when an edit of the current version is waiting for Keep or Discard. */
+  pendingVersionId: string | null;
+  /** The instruction the user wrote for this image, for recognition and search. */
+  originalPrompt: string | null;
 };
 
 /** Editable references only: retired rows stay resolvable by snapshot, not listed. */
@@ -93,6 +97,26 @@ export async function listStyleAssets(
     for (const parent of parentVersions ?? []) parentToSourceAsset.set(parent.id, parent.asset_id);
   }
 
+  // A candidate edit is a version whose parent is the current one; it waits for
+  // the user to keep or discard it, so the gallery has to show that.
+  const { data: candidateVersions } = await client
+    .from("asset_versions")
+    .select("id, asset_id, parent_version_id, created_at, metadata")
+    .in("asset_id", pageAssets.map((asset) => asset.id))
+    .order("created_at", { ascending: false });
+  const pendingByAsset = new Map<string, string>();
+  const promptByAsset = new Map<string, string>();
+  for (const version of candidateVersions ?? []) {
+    const currentId = pageAssets.find((asset) => asset.id === version.asset_id)?.current_version_id ?? null;
+    if (currentId && version.parent_version_id === currentId && version.id !== currentId && !pendingByAsset.has(version.asset_id)) {
+      pendingByAsset.set(version.asset_id, version.id);
+    }
+    const original = (version.metadata as Record<string, unknown> | null)?.original_prompt;
+    if (typeof original === "string" && original.trim() && !promptByAsset.has(version.asset_id)) {
+      promptByAsset.set(version.asset_id, original.trim());
+    }
+  }
+
   const assets = await Promise.all(
     pageAssets.map(async (row) => {
       const version = row.current_version_id ? versionById.get(row.current_version_id) : undefined;
@@ -106,6 +130,8 @@ export async function listStyleAssets(
         createdAt: row.created_at,
         parentVersionId,
         sourceAssetId: parentVersionId ? (parentToSourceAsset.get(parentVersionId) ?? null) : null,
+        pendingVersionId: pendingByAsset.get(row.id) ?? null,
+        originalPrompt: promptByAsset.get(row.id) ?? null,
       } satisfies StyleGalleryAsset;
     }),
   );

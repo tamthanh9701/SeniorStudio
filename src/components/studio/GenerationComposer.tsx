@@ -40,14 +40,16 @@ export default function GenerationComposer({ prompt, setPrompt, settings, select
           className="max-h-40 min-h-12 resize-none border-0 bg-transparent px-3 py-3 text-sm leading-6 shadow-none focus-visible:ring-0 dark:bg-transparent"
         />
         <div className="flex items-center gap-2 px-1 pb-1">
-          <Button type="button" variant="outline" size="sm" onClick={onOpenSettings}>
+          <Button type="button" variant="outline" size="sm" onClick={onOpenSettings} aria-label={selectedModel ? `Model and settings: ${selectedModel.label}` : "Choose a model"} className="shrink-0">
             <SlidersHorizontal className="size-3.5" />
-            {selectedModel?.label ?? "Choose model"}
+            <span className="hidden min-w-0 truncate sm:inline">{selectedModel?.label ?? "Choose model"}</span>
           </Button>
-          <Badge variant="secondary" className="min-w-0 flex-1 justify-start truncate">
-            {selectedModel ? `${settings.size} · ${settings.quality} · ${settings.count} image${settings.count > 1 ? "s" : ""}` : "Model selection required"}
-          </Badge>
-          <Button size="sm" onClick={onSubmit} disabled={disabled}>
+          <span className="hidden min-w-0 flex-1 sm:block">
+            <Badge variant="secondary" className="w-full justify-start truncate">
+              {selectedModel ? `${settings.size} · ${settings.quality} · ${settings.count} image${settings.count > 1 ? "s" : ""}` : "Model selection required"}
+            </Badge>
+          </span>
+          <Button size="sm" onClick={onSubmit} disabled={disabled} className="ml-auto shrink-0">
             <ArrowUp className="size-3.5" />
             Generate
           </Button>

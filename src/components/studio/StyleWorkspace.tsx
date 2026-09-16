@@ -1,11 +1,14 @@
 "use client";
 
 import {
+  Activity,
   AlertTriangle,
   ChevronDown,
   ImagePlus,
   LoaderCircle,
   RotateCcw,
+  MoreHorizontal,
+  Search,
   Settings,
   Trash2,
   Upload,
@@ -15,14 +18,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClarificationForm from "./ClarificationForm";
+import JobTimeline from "./JobTimeline";
+import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import SchemaEditor from "./SchemaEditor";
 import StyleGroupComposer, { type ComposerReference } from "./StyleGroupComposer";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -81,6 +87,10 @@ type GalleryAsset = {
   currentVersionId: string | null;
   signedUrl: string | null;
   createdAt: string;
+  /** An edit of the current version that is waiting for Keep or Discard. */
+  pendingVersionId?: string | null;
+  /** The instruction the user wrote for this image. */
+  originalPrompt?: string | null;
 };
 
 type Feedback = { kind: "error" | "success"; text: string; action?: { label: string; run: () => void } };
@@ -173,6 +183,7 @@ export default function StyleWorkspace({
   compose = false,
   sourceVersionId = null,
   initialSourceVersion = null,
+  sourceAssetName = null,
   models,
   initialJobs,
   initialDetail,
@@ -184,6 +195,8 @@ export default function StyleWorkspace({
   sourceVersionId?: string | null;
   /** Resolved by the server so a variant works for any version of this style. */
   initialSourceVersion?: { id: string; prompt: string | null; metadata: Record<string, unknown> } | null;
+  /** Name of the image a variation starts from, shown on the composer. */
+  sourceAssetName?: string | null;
   models: ModelCatalogEntry[];
   initialJobs: ProjectJobFeedItem[];
   /** Supplied by the server so the first paint shows the style, not a skeleton. */
@@ -203,6 +216,12 @@ export default function StyleWorkspace({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [dragging, setDragging] = useState(false);
   const [composerOpen, setComposerOpen] = useState(compose);
+  const [imageQuery, setImageQuery] = useState("");
+  const [retryPrompt, setRetryPrompt] = useState<string | null>(null);
+  const [deleteImageTarget, setDeleteImageTarget] = useState<GalleryAsset | null>(null);
+  const [renameTarget, setRenameTarget] = useState<GalleryAsset | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [activityOpen, setActivityOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -301,8 +320,100 @@ export default function StyleWorkspace({
     };
   }, [initialJobs, initialSourceVersion, sourceVersionId]);
   const showComposer = composerOpen || (detail !== null && gallery.length === 0 && ready);
+  // Status the gallery and the activity panel share: a job that is still running
+  // or that failed since the last successful image.
+  const runningJobs = initialJobs.filter(({ job }) => !["succeeded", "failed", "canceled"].includes(job.status)).length;
+  const latestFailure = initialJobs.find(({ job }) => job.status === "failed") ?? null;
+  const runningAssetIds = new Set(
+    initialJobs
+      .filter(({ job }) => !["succeeded", "failed", "canceled"].includes(job.status))
+      .map(({ job }) => job.asset_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const filteredGallery = imageQuery.trim()
+    ? gallery.filter((asset) => {
+        const needle = imageQuery.trim().toLowerCase();
+        return asset.name.toLowerCase().includes(needle) || (asset.originalPrompt ?? "").toLowerCase().includes(needle);
+      })
+    : gallery;
 
   const selectTab = (next: WorkspaceTab) => { setTab(next); setFeedback(null); };
+
+  const cancelJob = async (job: AiJob) => {
+    const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setFeedback({ kind: "error", text: `${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Unable to cancel this job"}` });
+      return;
+    }
+    await refresh({ silent: true });
+    setFeedback({ kind: "success", text: "Generation canceled." });
+  };
+
+  const deleteImage = async (asset: GalleryAsset) => {
+    setBusy("delete-image");
+    setFeedback(null);
+    const response = await fetch(`/api/assets/${asset.id}`, { method: "DELETE" });
+    const body = await response.json().catch(() => ({}));
+    setBusy(null);
+    if (!response.ok) {
+      setFeedback({ kind: "error", text: `${body.error?.code ?? "DELETE_FAILED"}: ${body.error?.message ?? "Unable to delete this image"}` });
+      return;
+    }
+    setDeleteImageTarget(null);
+    await refresh({ silent: true });
+    setFeedback({ kind: "success", text: "Image deleted." });
+  };
+
+  const renameImage = async () => {
+    if (!renameTarget) return;
+    const name = renameDraft.trim();
+    if (!name) return;
+    setBusy("rename-image");
+    setFeedback(null);
+    const response = await fetch(`/api/assets/${renameTarget.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setBusy(null);
+    if (!response.ok) {
+      setFeedback({ kind: "error", text: `${body.error?.code ?? "RENAME_FAILED"}: ${body.error?.message ?? "Unable to rename this image"}` });
+      return;
+    }
+    setRenameTarget(null);
+    await refresh({ silent: true });
+  };
+
+  /** Keep a waiting edit: select it with the current version the user saw. */
+  const keepPendingEdit = async (asset: GalleryAsset) => {
+    if (!asset.pendingVersionId) return;
+    setBusy("keep-edit");
+    setFeedback(null);
+    const response = await fetch(`/api/assets/${asset.id}/current`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ versionId: asset.pendingVersionId, expectedCurrentVersionId: asset.currentVersionId }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setBusy(null);
+    if (!response.ok) {
+      setFeedback({ kind: "error", text: `${body.error?.code ?? "KEEP_FAILED"}: ${body.error?.message ?? "Unable to keep this edit"}` });
+      await refresh({ silent: true });
+      return;
+    }
+    await refresh({ silent: true });
+    setFeedback({ kind: "success", text: "Edit kept. It is now the current version." });
+  };
+
+  /** Re-open the composer with the failed attempt's own words, ready to send. */
+  const retryJob = (job: AiJob) => {
+    setRetryPrompt(job.input.original_prompt ?? job.input.prompt ?? "");
+    setComposerOpen(true);
+    setActivityOpen(false);
+    setFeedback({ kind: "success", text: "Your description is back in the form — review it and generate again." });
+  };
 
   const upload = async (files: File[]) => {
     if (!detail || busy !== null || files.length === 0) return;
@@ -851,11 +962,6 @@ export default function StyleWorkspace({
 
   const imagesScreen = (
     <section className="space-y-5">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold">Images</h2>
-        <p className="text-sm text-muted-foreground">Images generated with this style. Every image keeps the confirmed definition it was made with.</p>
-      </div>
-
       {!ready && (
         <Card className="gap-3 p-4">
           <p className="text-sm">
@@ -867,40 +973,47 @@ export default function StyleWorkspace({
         </Card>
       )}
 
-      {confirmed.definition && (
-        <Card className="flex flex-wrap items-center gap-3 p-4">
-          <div className="min-w-0 flex-1">
-            <Label className="text-xs font-semibold tracking-wide text-muted-foreground">Confirmed definition</Label>
-            <p className="text-sm">
-              {confirmed.definition.reference_snapshot.length} reference image(s) · confirmed {formatDateTime(confirmed.definition.confirmed_at)}
-            </p>
+      {ready && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          {modelsForComposer.length > 0 && (
+            <Button
+              type="button"
+              onClick={() => { setRetryPrompt(null); setComposerOpen(true); }}
+              className="w-full sm:w-auto"
+            >
+              <ImagePlus className="size-4" aria-hidden /> Create image
+            </Button>
+          )}
+          <div className="relative min-w-0 flex-1">
+            <label className="sr-only" htmlFor="style-image-search">Search images</label>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              id="style-image-search"
+              className="pl-9"
+              placeholder="Search by name or description"
+              value={imageQuery}
+              onChange={(event) => setImageQuery(event.target.value)}
+            />
           </div>
-          {candidateChanged && (
-            <p role="status" className="text-xs text-warning">Changes are not used until you confirm the updated style.</p>
+          {runningJobs > 0 && (
+            <Badge variant="secondary" role="status" aria-live="polite" className="shrink-0 gap-1.5">
+              <LoaderCircle className="size-3 animate-spin" aria-hidden />
+              {runningJobs} running
+            </Badge>
           )}
-          {candidateChanged && (
-            <Button type="button" variant="outline" onClick={() => selectTab("style")}>Review the change</Button>
-          )}
-        </Card>
+        </div>
       )}
 
-      {gallery.length > 0 ? (
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {gallery.map((asset) => (
-            <li key={asset.id}>
-              <Link href={`/style/${styleId}/assets/${asset.id}`} className="group block overflow-hidden rounded-xl border border-border bg-card transition hover:border-primary">
-                {asset.signedUrl
-                  ? <img src={asset.signedUrl} alt={asset.name} className="aspect-square w-full object-cover" />
-                  : <span className="flex aspect-square items-center justify-center text-xs text-muted-foreground">Preview unavailable</span>}
-                <span className="block truncate px-3 py-2 text-xs text-muted-foreground">{asset.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Card role="status" className="p-5 text-sm text-muted-foreground">
-          {ready ? "No images yet. Create the first image for this style." : "No images yet."}
-        </Card>
+      {ready && confirmed.definition && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            {confirmed.definition.reference_snapshot.length} reference{confirmed.definition.reference_snapshot.length === 1 ? "" : "s"} · confirmed {formatDateTime(confirmed.definition.confirmed_at)} · revision {confirmed.definition.style_revision.slice(0, 8)}
+          </span>
+          <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={() => selectTab("style")}>
+            Style guide
+          </Button>
+          {candidateChanged && <span role="status" className="text-warning">Changes are not used until you confirm the updated style.</span>}
+        </div>
       )}
 
       {ready && modelsForComposer.length === 0 && (
@@ -909,6 +1022,161 @@ export default function StyleWorkspace({
           <Button asChild><Link href="/settings">Set up a provider</Link></Button>
         </Card>
       )}
+
+      {gallery.length > 0 ? (
+        filteredGallery.length > 0 ? (
+          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {filteredGallery.map((asset) => {
+              const pending = Boolean(asset.pendingVersionId);
+              const generating = runningAssetIds.has(asset.id);
+              return (
+                <li key={asset.id} className="group relative overflow-hidden rounded-lg border border-border bg-card transition hover:border-primary">
+                  <Link href={`/style/${styleId}/assets/${asset.id}`} className="block">
+                    {asset.signedUrl
+                      ? <img src={asset.signedUrl} alt={asset.name} className="aspect-square w-full object-cover" />
+                      : <span className="flex aspect-square items-center justify-center text-xs text-muted-foreground">Preview unavailable</span>}
+                    <span className="block px-3 pb-2 pr-10 pt-2">
+                      <span className="block truncate text-xs font-medium text-foreground">{asset.name}</span>
+                      {asset.originalPrompt && (
+                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground" title={asset.originalPrompt}>{asset.originalPrompt}</span>
+                      )}
+                    </span>
+                  </Link>
+                  {generating && (
+                    <Badge variant="secondary" className="absolute left-2 top-2 gap-1" role="status">
+                      <LoaderCircle className="size-3 animate-spin" aria-hidden /> Generating
+                    </Badge>
+                  )}
+                  {pending && (
+                    <Badge className="absolute left-2 top-2 bg-warning/15 text-warning">Waiting for review</Badge>
+                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-1.5 bottom-1.5"
+                        aria-label={`Actions for ${asset.name}`}
+                      >
+                        <MoreHorizontal className="size-4" aria-hidden />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/style/${styleId}/assets/${asset.id}`}>Open</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/style/${styleId}/assets/${asset.id}/edit`}>Edit</Link>
+                      </DropdownMenuItem>
+                      {asset.currentVersionId && (
+                        <DropdownMenuItem asChild>
+                          <Link href={`/style/${styleId}/new?sourceVersionId=${asset.currentVersionId}`}>Create variation</Link>
+                        </DropdownMenuItem>
+                      )}
+                      {asset.pendingVersionId && (
+                        <DropdownMenuItem asChild>
+                          <Link href={`/style/${styleId}/assets/${asset.id}?version=${asset.pendingVersionId}&review=1`}>Review edit</Link>
+                        </DropdownMenuItem>
+                      )}
+                      {asset.pendingVersionId && (
+                        <DropdownMenuItem disabled={busy !== null} onSelect={() => void keepPendingEdit(asset)}>Keep edit</DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem disabled={busy !== null} onSelect={() => { setRenameTarget(asset); setRenameDraft(asset.name); }}>
+                        Rename
+                      </DropdownMenuItem>
+                      {asset.signedUrl && (
+                        <DropdownMenuItem asChild>
+                          <a href={asset.signedUrl} download>Download</a>
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={busy !== null}
+                        onSelect={() => setDeleteImageTarget(asset)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <Card role="status" className="p-5 text-sm text-muted-foreground">
+            No image matches “{imageQuery.trim()}”.
+          </Card>
+        )
+      ) : (
+        <Card role="status" className="p-5 text-sm text-muted-foreground">
+          {ready ? "No images yet. Create the first image for this style." : "No images yet."}
+        </Card>
+      )}
+
+      {initialJobs.length > 0 && (
+        <Collapsible open={activityOpen} onOpenChange={setActivityOpen} className="rounded-lg border border-border">
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-between px-4">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <Activity className="size-4" aria-hidden /> Activity
+              </span>
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                {runningJobs > 0 ? `${runningJobs} running` : latestFailure ? "A generation failed" : "All finished"}
+                <ChevronDown className={cn("size-4 transition", activityOpen && "rotate-180")} aria-hidden />
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="border-t border-border">
+            <JobTimeline items={initialJobs} onRetry={retryJob} onCancel={(job) => void cancelJob(job)} onSelectResult={() => undefined} />
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      <Dialog open={renameTarget !== null} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename image</DialogTitle>
+            <DialogDescription>Give this image a name you recognise in the gallery.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="image-name" className="text-xs font-semibold">Name</Label>
+            <Input
+              id="image-name"
+              value={renameDraft}
+              maxLength={120}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void renameImage(); }}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={busy !== null}>Cancel</Button>
+            <Button type="button" onClick={() => void renameImage()} disabled={!renameDraft.trim() || busy !== null}>
+              {busy === "rename-image" ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : null} Save name
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteImageTarget !== null} onOpenChange={(open) => { if (!open) setDeleteImageTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteImageTarget?.name} and every version of it are removed permanently. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy === "delete-image"}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy === "delete-image"}
+              onClick={(event) => { event.preventDefault(); if (deleteImageTarget) void deleteImage(deleteImageTarget); }}
+            >
+              {busy === "delete-image" ? "Deleting…" : "Delete permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {ready && showComposer && modelsForComposer.length > 0 && (
         <div className="space-y-4">
@@ -926,15 +1194,11 @@ export default function StyleWorkspace({
             sourceVersion={sourceVersion}
             embedded
             initialJob={latestJob}
+            initialPrompt={retryPrompt}
+            sourceLabel={sourceVersion ? sourceAssetName : null}
             onSubmitted={() => { void refresh({ silent: true }); }}
           />
         </div>
-      )}
-
-      {ready && !showComposer && modelsForComposer.length > 0 && (
-        <Button type="button" onClick={() => setComposerOpen(true)}>
-          <ImagePlus className="size-4" aria-hidden /> Create new image
-        </Button>
       )}
     </section>
   );

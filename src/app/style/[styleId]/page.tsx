@@ -71,7 +71,7 @@ export default async function StyleGroupPage({
   const sourceVersion = query.sourceVersionId
     ? await supabase
         .from("asset_versions")
-        .select("id, prompt, metadata, assets!asset_versions_asset_id_fkey!inner(style_id)")
+        .select("id, prompt, metadata, assets!asset_versions_asset_id_fkey!inner(id, name, style_id)")
         .eq("id", query.sourceVersionId)
         .eq("assets.style_id", styleId)
         .maybeSingle()
@@ -79,7 +79,8 @@ export default async function StyleGroupPage({
           if (!data) return null;
           const metadata = (data.metadata ?? {}) as Record<string, unknown>;
           const original = typeof metadata.original_prompt === "string" && metadata.original_prompt.trim() ? metadata.original_prompt : null;
-          return { id: data.id, prompt: original, metadata };
+          const asset = (data as unknown as { assets?: { name?: string | null } }).assets;
+          return { id: data.id, prompt: original, metadata, assetName: asset?.name ?? null };
         })
     : null;
 
@@ -93,7 +94,8 @@ export default async function StyleGroupPage({
       initialTab={initialTab}
       compose={query.compose === "1"}
       sourceVersionId={query.sourceVersionId ?? null}
-      initialSourceVersion={sourceVersion}
+      initialSourceVersion={sourceVersion ? { id: sourceVersion.id, prompt: sourceVersion.prompt, metadata: sourceVersion.metadata } : null}
+      sourceAssetName={sourceVersion?.assetName ?? null}
       models={modelCatalog}
       initialJobs={initialJobs}
       initialDetail={style}

@@ -307,7 +307,10 @@ describe("style workspace", () => {
     await clickButton(host, "Confirm style & continue");
 
     expect(host.textContent).toContain("Style guide");
-    expect(host.textContent).toContain("Confirmed definition");
+    // The confirmed state is now one compact line: references, when it was
+    // confirmed, and the revision in use.
+    expect(host.textContent).toMatch(/1 reference · confirmed /);
+    expect(host.textContent).toContain("revision 99999999");
     unmount(host, root);
   });
 

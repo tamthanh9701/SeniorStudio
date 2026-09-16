@@ -212,9 +212,8 @@ export default async function StyleAssetDetailPage({
                 <h2 className="font-semibold">Review edit</h2>
               </div>
               <p className="text-sm text-muted-foreground">
-                This edit is a candidate. Keeping it makes it the current version of {asset.name}; until then it stays in history only.
+                This edit is a candidate. Keeping it makes it the current version of {asset.name}; until then it stays in history only. Use the buttons that stay on screen at the bottom.
               </p>
-              <VersionReviewActions assetId={assetId} assetHref={assetHref} versionId={selected.id} currentVersionId={asset.current_version_id ?? null} />
             </CardContent></Card>
           )}
 
@@ -284,6 +283,14 @@ export default async function StyleAssetDetailPage({
           />
         </aside>
       </div>
+
+      {reviewing && candidate && selected && (
+        <div className="border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
+          <div className="mx-auto max-w-3xl">
+            <VersionReviewActions assetId={assetId} assetHref={assetHref} versionId={selected.id} currentVersionId={asset.current_version_id ?? null} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

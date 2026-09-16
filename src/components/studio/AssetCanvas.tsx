@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { Download, ExternalLink, Focus, Scan, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Focus, MoreHorizontal, Scan, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { WorkspaceAsset } from "@/components/studio/ToolInspector";
 
 export default function AssetCanvas({ assets, selectedIndex, onSelect, projectId, onEmptyFocus, loadingCount = 0, onDelete }: { assets: WorkspaceAsset[]; selectedIndex: number; onSelect: (index: number) => void; projectId: string; onEmptyFocus: () => void; loadingCount?: number; onDelete?: (assetId: string) => void }) {
   const selected = assets[selectedIndex] ?? null;
   const [actualSize, setActualSize] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
   useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.key === "ArrowLeft" && assets.length) onSelect((selectedIndex - 1 + assets.length) % assets.length); if (event.key === "ArrowRight" && assets.length) onSelect((selectedIndex + 1) % assets.length); if (event.key === "Escape") setActualSize(false); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [assets.length, onSelect, selectedIndex]);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -37,29 +39,63 @@ export default function AssetCanvas({ assets, selectedIndex, onSelect, projectId
           </button>
         )}
         {selected && (
-          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-card/95 p-1 text-foreground shadow-xl backdrop-blur">
-            <Button variant="outline" size="icon" className={cn(!actualSize && "bg-primary/15 text-primary")} onClick={() => setActualSize(false)} aria-label="Zoom to fit" aria-pressed={!actualSize} title="Zoom to fit">
-              <Focus className="size-4" />
+          <>
+            {/* Phones get one button; five controls covered the artwork. */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="absolute right-2 top-2 sm:hidden"
+              aria-label="Image actions"
+              onClick={() => setToolbarOpen(true)}
+            >
+              <MoreHorizontal className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" className={cn(actualSize && "bg-primary/15 text-primary")} onClick={() => setActualSize(true)} aria-label="View at 100 percent" aria-pressed={actualSize} title="100%">
-              <span className="text-[11px] font-semibold">100%</span>
-            </Button>
-            {selected.signedUrl && (
-              <Button asChild variant="outline" size="icon">
-                <a href={selected.signedUrl} download aria-label="Download asset" title="Download">
-                  <Download className="size-4" />
-                </a>
+            <div className="absolute left-1/2 top-3 hidden -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-card/95 p-1 text-foreground shadow-xl backdrop-blur sm:flex">
+              <Button variant="outline" size="icon" className={cn(!actualSize && "bg-primary/15 text-primary")} onClick={() => setActualSize(false)} aria-label="Zoom to fit" aria-pressed={!actualSize} title="Zoom to fit">
+                <Focus className="size-4" />
               </Button>
-            )}
-            <Button asChild variant="outline" size="icon">
-              <Link href={`/projects/${projectId}/assets/${selected.id}`} aria-label="Open asset details" title="Details">
-                <ExternalLink className="size-4" />
-              </Link>
-            </Button>
-            <Button variant="outline" size="icon" className="text-destructive/70 hover:text-destructive" onClick={() => onDelete?.(selected.id)} aria-label="Delete this asset" title="Delete asset">
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
+              <Button variant="outline" size="icon" className={cn(actualSize && "bg-primary/15 text-primary")} onClick={() => setActualSize(true)} aria-label="View at 100 percent" aria-pressed={actualSize} title="100%">
+                <span className="text-[11px] font-semibold">100%</span>
+              </Button>
+              {selected.signedUrl && (
+                <Button asChild variant="outline" size="icon">
+                  <a href={selected.signedUrl} download aria-label="Download asset" title="Download">
+                    <Download className="size-4" />
+                  </a>
+                </Button>
+              )}
+              <Button asChild variant="outline" size="icon">
+                <Link href={`/projects/${projectId}/assets/${selected.id}`} aria-label="Open asset details" title="Details">
+                  <ExternalLink className="size-4" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="icon" className="text-destructive/70 hover:text-destructive" onClick={() => onDelete?.(selected.id)} aria-label="Delete this asset" title="Delete asset">
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+            <Sheet open={toolbarOpen} onOpenChange={setToolbarOpen}>
+              <SheetContent side="bottom" className="space-y-2 p-4">
+                <SheetTitle className="text-sm font-semibold">Image</SheetTitle>
+                <Button variant="outline" className="w-full justify-start" onClick={() => { setActualSize(false); setToolbarOpen(false); }}>
+                  <Focus className="size-4" /> Zoom to fit
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => { setActualSize(true); setToolbarOpen(false); }}>
+                  <span className="text-[11px] font-semibold">100%</span> Actual size
+                </Button>
+                {selected.signedUrl && (
+                  <Button asChild variant="outline" className="w-full justify-start">
+                    <a href={selected.signedUrl} download><Download className="size-4" /> Download</a>
+                  </Button>
+                )}
+                <Button asChild variant="outline" className="w-full justify-start">
+                  <Link href={`/projects/${projectId}/assets/${selected.id}`}><ExternalLink className="size-4" /> Details</Link>
+                </Button>
+                <Button variant="outline" className="w-full justify-start text-destructive" onClick={() => { setToolbarOpen(false); onDelete?.(selected.id); }}>
+                  <Trash2 className="size-4" /> Delete asset
+                </Button>
+              </SheetContent>
+            </Sheet>
+          </>
         )}
       </div>
       {assets.length > 0 && (

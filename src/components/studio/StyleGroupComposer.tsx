@@ -40,6 +40,8 @@ export default function StyleGroupComposer({
   sourceVersion,
   embedded = false,
   initialJob = null,
+  initialPrompt = null,
+  sourceLabel = null,
   onSubmitted,
 }: {
   styleId: string;
@@ -51,9 +53,13 @@ export default function StyleGroupComposer({
   /** Rendered inside the style workspace instead of as a standalone page. */
   embedded?: boolean;
   initialJob?: AiJob | null;
+  /** Prefills the form after a failed attempt so the user can retry it. */
+  initialPrompt?: string | null;
+  /** Name of the image this generation varies, when it is a variation. */
+  sourceLabel?: string | null;
   onSubmitted?: () => void;
 }) {
-  const [prompt, setPrompt] = useState(sourceVersion?.prompt ?? "");
+  const [prompt, setPrompt] = useState(sourceVersion?.prompt ?? initialPrompt ?? "");
   const [modelId, setModelId] = useState(models.find((model) => model.id === "openai/gpt-image-2")?.id ?? models[0]?.id ?? "");
   const [size, setSize] = useState("1024x1024");
   const [quality, setQuality] = useState("auto");
@@ -70,6 +76,10 @@ export default function StyleGroupComposer({
   const busyRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    if (initialPrompt) setPrompt(initialPrompt);
+  }, [initialPrompt]);
 
   useEffect(() => {
     mountedRef.current = true;
