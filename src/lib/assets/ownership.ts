@@ -168,6 +168,33 @@ export async function getOwnedJobMask(client: SupabaseClient, workspaceId: strin
   return { mask: data as OwnedJobMask["mask"], owned: brandOwned(workspaceId, data.storage_path) };
 }
 
+/**
+ * Splits paths into the ones a workspace may delete and the ones it may not.
+ *
+ * Rows are writable by workspace members, so a `storage_path` read back from the
+ * database is not proof of ownership. Every privileged delete filters through
+ * here first: a path must be well formed and live under one of the caller's own
+ * containers before the service role touches it.
+ */
+export function filterOwnedStoragePaths(
+  paths: ReadonlyArray<string | null | undefined>,
+  prefixes: readonly string[],
+): { owned: string[]; rejected: string[] } {
+  const owned: string[] = [];
+  const rejected: string[] = [];
+  for (const path of paths) {
+    if (typeof path !== "string" || path.length === 0) continue;
+    try {
+      const clean = validateStoragePath(path);
+      if (prefixes.some((prefix) => clean.startsWith(prefix))) owned.push(clean);
+      else rejected.push(clean);
+    } catch {
+      rejected.push(path);
+    }
+  }
+  return { owned, rejected };
+}
+
 function assertOwned(value: OwnedStorageObject): void { if (!value || value[__ownedBrand] !== true) throw ownedError("INVALID_STORAGE_PATH"); }
 export async function downloadOwnedBytes(client: SupabaseClient, owned: OwnedStorageObject): Promise<{ bytes: Uint8Array; mimeType: string }> {
   assertOwned(owned);

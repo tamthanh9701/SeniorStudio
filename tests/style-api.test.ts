@@ -177,7 +177,7 @@ describe("DELETE /api/styles/[styleId]", () => {
   function stubStyle() {
     (client.from as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
       if (table === "styles") {
-        return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: vi.fn(async () => ({ data: { id: "s1", name: "Lolo" } })) };
+        return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: vi.fn(async () => ({ data: { id: "s1", name: "Lolo", workspace_id: "ws-1" } })) };
       }
       return {};
     });
@@ -213,6 +213,21 @@ describe("DELETE /api/styles/[styleId]", () => {
     const response = await deleteStyle(new Request("http://x?confirmName=Lolo", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe("STYLE_BUSY");
+  });
+
+  it("never hands a path outside the style to the privileged delete", async () => {
+    stubStyle();
+    // The RPC returns whatever its rows hold, and rows are member-writable: a
+    // forged version path pointed at another workspace's object (proof of concept
+    // in the security review) must not reach storage.remove().
+    const forged = "ws-2/styles/s9/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png";
+    (client.rpc as ReturnType<typeof vi.fn>).mockReturnValue(rpcNode({ data: { images: 0, references: 0, jobs: 0, storage_paths: [forged, "ws-1/styles/s1/keep.png"] }, error: null }));
+    const remove = vi.fn(async (_paths: string[]) => ({ error: null }));
+    serviceClient.storage.from.mockReturnValue({ remove });
+    const response = await deleteStyle(new Request("http://x?confirmName=Lolo", { method: "DELETE" }), { params: Promise.resolve({ styleId: "s1" }) });
+    expect(response.status).toBe(200);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0][0]).toEqual(["ws-1/styles/s1/keep.png"]);
   });
 
   it("still reports success when orphaned storage objects cannot be removed", async () => {

@@ -9,6 +9,7 @@ import type { PromptSchema } from "@/lib/style/prompt-schema";
 import { scoreStyleOperability } from "@/lib/style/operability-scorer";
 import { z } from "zod";
 import { STORAGE_BUCKET } from "@/db/schema";
+import { filterOwnedStoragePaths } from "@/lib/assets/ownership";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { styleProfilesEnabled } from "@/lib/style/flag";
 const PatchStyleSchema = z
@@ -151,7 +152,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
   // Deleting is not reversible and takes the reference images and every image
   // generated inside the style with it, so the style name is the confirmation.
   const confirmName = new URL(request.url).searchParams.get("confirmName");
-  const { data: style } = await supabase.from("styles").select("id, name").eq("id", styleId).maybeSingle();
+  const { data: style } = await supabase.from("styles").select("id, name, workspace_id").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
   if (!confirmName || style.name !== confirmName.trim()) {
     return NextResponse.json({ error: { code: "CONFIRMATION_MISMATCH", message: "Type the style name to confirm deletion" } }, { status: 400 });
@@ -174,7 +175,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
   const deleted = (data ?? {}) as DeleteStyleResult;
 
   // Best-effort storage cleanup; orphans are logged, never surfaced to the client.
-  const paths = deleted.storage_paths ?? [];
+  // Deleting with the service role is filtered first: the paths come from rows a
+  // workspace member can write, so only this style's own objects are removed.
+  const { owned, rejected } = filterOwnedStoragePaths(deleted.storage_paths ?? [], [`${style.workspace_id}/styles/${styleId}/`]);
+  if (rejected.length > 0) console.error(`style delete refused ${rejected.length} foreign storage path(s) style=${styleId}`);
+  const paths = owned;
   const service = getServiceClient();
   for (let index = 0; index < paths.length; index += 100) {
     const chunk = paths.slice(index, index + 100);

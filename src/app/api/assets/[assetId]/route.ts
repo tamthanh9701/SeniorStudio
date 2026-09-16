@@ -44,7 +44,17 @@ export async function GET(
   return NextResponse.json({ asset, version, signed_url: signedUrl });
 }
 import { getServiceClient } from "@/supabase/server";
+import { filterOwnedStoragePaths } from "@/lib/assets/ownership";
 import { STORAGE_BUCKET } from "@/db/schema";
+
+/** Only the owning container is needed to decide which objects this asset may remove. */
+const AssetOwnerSchema = z.object({
+  id: z.string().uuid(),
+  project_id: z.string().uuid().nullable(),
+  style_id: z.string().uuid().nullable(),
+  projects: z.object({ workspace_id: z.string().uuid() }).nullable(),
+  styles: z.object({ workspace_id: z.string().uuid() }).nullable(),
+});
 
 export async function DELETE(
   request: NextRequest,
@@ -60,11 +70,29 @@ export async function DELETE(
 
   const { data: asset, error: assetError } = await supabase
     .from("assets")
-    .select("id")
+    .select("id, project_id, style_id, projects!assets_project_id_fkey(workspace_id), styles!assets_style_id_fkey(workspace_id)")
     .eq("id", assetId)
     .single();
 
   if (assetError || !asset) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Asset not found" } }, { status: 404 });
+  }
+
+  const owner = AssetOwnerSchema.safeParse(asset);
+  if (!owner.success) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Asset not found" } }, { status: 404 });
+  }
+  // The objects this asset owns, by the convention each writer uses.
+  const { project_id: projectId, style_id: styleId } = owner.data;
+  const project = owner.data.projects;
+  const style = owner.data.styles;
+  const ownerPrefixes = [
+    ...(project && projectId ? [`${project.workspace_id}/${projectId}/${assetId}/`] : []),
+    ...(style && styleId
+      ? [`${style.workspace_id}/styles/${styleId}/outputs/${assetId}/`, `${style.workspace_id}/styles/${styleId}/sources/${assetId}/`]
+      : []),
+  ];
+  if (ownerPrefixes.length === 0) {
     return NextResponse.json({ error: { code: "NOT_FOUND", message: "Asset not found" } }, { status: 404 });
   }
 
@@ -115,9 +143,12 @@ export async function DELETE(
     );
   }
 
-  if (storagePaths.length > 0) {
+  // Rows are member-writable, so only this asset's own objects are removed.
+  const { owned, rejected } = filterOwnedStoragePaths(storagePaths, ownerPrefixes);
+  if (rejected.length > 0) console.error(`asset delete refused ${rejected.length} foreign storage path(s) asset=${assetId}`);
+  if (owned.length > 0) {
     const service = getServiceClient();
-    const { error: storageError } = await service.storage.from(STORAGE_BUCKET).remove(storagePaths);
+    const { error: storageError } = await service.storage.from(STORAGE_BUCKET).remove(owned);
     if (storageError) console.error(`asset storage cleanup failed asset=${assetId}: ${storageError.message}`);
   }
 

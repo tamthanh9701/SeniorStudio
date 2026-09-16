@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { filterOwnedStoragePaths } from "@/lib/assets/ownership";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { STORAGE_BUCKET } from "@/db/schema";
 
@@ -16,7 +17,7 @@ export async function DELETE(
 
   const { data: project, error: projectError } = await supabase
     .from("projects")
-    .select("id")
+    .select("id, workspace_id")
     .eq("id", projectId)
     .single();
 
@@ -54,10 +55,13 @@ export async function DELETE(
     return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
 
-  if (storagePaths.length > 0) {
+  // Rows are member-writable, so only objects under this project are removed.
+  const { owned, rejected } = filterOwnedStoragePaths(storagePaths, [`${project.workspace_id}/${projectId}/`]);
+  if (rejected.length > 0) console.error(`project delete refused ${rejected.length} foreign storage path(s) project=${projectId}`);
+  if (owned.length > 0) {
     const service = getServiceClient();
-    for (let i = 0; i < storagePaths.length; i += 100) {
-      const chunk = storagePaths.slice(i, i + 100);
+    for (let i = 0; i < owned.length; i += 100) {
+      const chunk = owned.slice(i, i + 100);
       await service.storage.from(STORAGE_BUCKET).remove(chunk);
     }
   }
