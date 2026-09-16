@@ -144,27 +144,35 @@ The same suites run in `ci.yml` on every push **when the repository has a
 `TEST_DATABASE_URL` secret** (the step is skipped without one). Set it to a staging
 database, not production.
 
-## Auth: the per-request round trip (infrastructure item, not a code change)
+## Auth: token verification, and the legacy secret that is left
 
-Every request handler starts with `supabase.auth.getUser()`, which asks the Supabase auth
-server over the network. Measured against production that call costs ~0.8 s per handler,
-and a request that runs several of them pays it every time. It cannot be removed in
-application code while the project signs its JWTs symmetrically: the header of
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` decodes to `{"alg":"HS256","typ":"JWT"}`, and a shared
-secret cannot be shipped to the client, so a token can only be verified with a round trip.
+Handlers used to open with `supabase.auth.getUser()`, a round trip to the auth server for
+every handler a request touched (~0.8 s per handler measured against production). They now
+go through `getVerifiedUser()` (`src/lib/auth/verified-user.ts`), which reads verified
+claims: `supabase.auth.getClaims()` verifies the signature locally against the project's
+JWKS, so the round trip is gone. While a project signs symmetrically the same call falls
+back to `getUser()` internally and returns identical claims, which is what made the switch
+safe to ship on its own.
 
-The switch, in this order:
+Measured on one machine, one route (`/api/ai-quota`) and one database, alternating the
+implementation: median 485 ms with the claims path, 684 ms with the identical route put
+back on `getUser()` - about 150-200 ms of round trip removed per handler on that network
+path.
 
-1. Rotate the project to an asymmetric signing key: Supabase dashboard → Project Settings →
-   API → JWT signing keys (`unverified — confirm first`: the menu has moved between
-   releases). Publish the new key and keep the legacy secret until every client has moved.
-2. Replace `auth.getUser()` with `auth.getClaims()` in the call sites — today 63
-   (`grep -rn "auth.getUser()" src/`), 50 of them in route handlers. `getClaims()` verifies
-   the token locally against the project's JWKS, so the round trip disappears; the claims it
-   returns (`sub`, `role`, expiry) are the ones the handlers already read.
+Where this project stands: user tokens are already asymmetric - a decoded access token
+carries `{"alg":"ES256","kid":"d2a27bd8-c147-4113-b9e2-a161f1560f5a"}` and the project has
+an `ES256` key `in_use` with the legacy `HS256` JWT secret kept as `previously_used`
+(`GET /v1/projects/{ref}/config/auth/signing-keys`). The anon key's own header still reads
+`HS256`: that is a legacy *API key* JWT, not the user-token signing key, and the two are
+independent. Nothing needs rotating for the round trip to stay gone.
 
-Ship the code and the rotation together. With a symmetric key `getClaims()` falls back to
-the same network call (`unverified — confirm first` against the supabase-js documentation
-for the version in `package.json`), so deploying one half on its own buys nothing.
+What is left is optional hardening - revoking the legacy secret - and its order matters:
+revocation requires disabling the legacy `anon` and `service_role` API keys first, and this
+app still authenticates with both (`NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`). So: create publishable and secret keys, move the browser
+client and the service client to them, deploy, then revoke the legacy secret (the Supabase
+guide suggests waiting at least the 1 h access-token lifetime first).
 
-Expected effect: one auth round trip per handler becomes zero.
+The single `getUser` call left in the app is the MCP resource server
+(`src/app/api/mcp/route.ts`): it verifies a bearer token handed to it by the caller and
+reports `email_confirmed_at`, which the claims do not carry.
