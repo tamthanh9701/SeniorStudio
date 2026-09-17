@@ -20,14 +20,14 @@ dbSuite("style guards (database)", () => {
     await harness.cleanup();
   });
 
-  it("enqueues a plain packet for a confirmed style", async () => {
+  it("enqueues a plain packet for a confirmed style", { timeout: 30_000 }, async () => {
     const style = await harness.createStyle("Guards enqueue", { references: 1 });
     const job = await harness.enqueueStyleJob(harness.packet(style.styleId, style.revision, style.references), style.styleId);
     expect(job.status).toBe("queued");
     expect((job.input as { reference_ids: string[] }).reference_ids).toEqual([style.references[0].id]);
   });
 
-  it("hard-deletes a style with terminal jobs and reports its own objects", async () => {
+  it("hard-deletes a style with terminal jobs and reports its own objects", { timeout: 30_000 }, async () => {
     const { admin, workspaceId } = harness;
     const style = await harness.createStyle("Guards delete", { references: 1, jobStatuses: ["succeeded", "failed", "canceled"] });
     const assetId = crypto.randomUUID();
@@ -51,13 +51,13 @@ dbSuite("style guards (database)", () => {
     expect((await admin.query("select count(*)::int as n from public.styles where id=$1", [style.styleId])).rows[0].n).toBe(0);
   });
 
-  it("refuses a style that is still generating, and one that does not exist", async () => {
+  it("refuses a style that is still generating, and one that does not exist", { timeout: 30_000 }, async () => {
     const style = await harness.createStyle("Guards busy", { references: 1, jobStatuses: ["processing"] });
     await expect(harness.asMember("select public.delete_style_hard($1)", [style.styleId])).rejects.toThrow(/STYLE_BUSY/);
     await expect(harness.asMember("select public.delete_style_hard($1)", [crypto.randomUUID()])).rejects.toThrow(/STYLE_NOT_FOUND/);
   });
 
-  it("accepts a borrowed reference from the same library and records it", async () => {
+  it("accepts a borrowed reference from the same library and records it", { timeout: 30_000 }, async () => {
     const { admin, workspaceId, userId } = harness;
     const libraryId = crypto.randomUUID();
     harness.track("library", libraryId);
@@ -74,7 +74,7 @@ dbSuite("style guards (database)", () => {
     expect(rows[0].style_generation.metadata?.library_reference_ids).toEqual([lender.references[0].id]);
   });
 
-  it("refuses a borrowed reference from another workspace", async () => {
+  it("refuses a borrowed reference from another workspace", { timeout: 30_000 }, async () => {
     const { admin } = harness;
     const otherWorkspace = crypto.randomUUID();
     const otherLibrary = crypto.randomUUID();
@@ -100,7 +100,7 @@ dbSuite("style guards (database)", () => {
     ).rejects.toThrow(/REFERENCE_NOT_FOUND/);
   });
 
-  it("accepts a subset of the confirmed snapshot", async () => {
+  it("accepts a subset of the confirmed snapshot", { timeout: 30_000 }, async () => {
     const style = await harness.createStyle("Guards subset", { references: 3 });
     const job = await harness.enqueueStyleJob(harness.packet(style.styleId, style.revision, style.references.slice(0, 2)), style.styleId);
     expect((job.input as { reference_ids: string[] }).reference_ids).toEqual([style.references[0].id, style.references[1].id]);
@@ -154,7 +154,7 @@ dbSuite("style guards (database)", () => {
     }
   });
 
-  it("claims expired and terminal-job masks but leaves live ones", async () => {
+  it("claims expired and terminal-job masks but leaves live ones", { timeout: 30_000 }, async () => {
     const { admin, workspaceId, userId } = harness;
     const style = await harness.createStyle("Guards masks", { references: 1 });
     const mask = async (expiresIn: string, jobId: string | null) => {

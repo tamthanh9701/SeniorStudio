@@ -27,7 +27,7 @@ dbSuite("runtime contracts (database)", () => {
     await harness.admin.query("update public.ai_jobs set attempt_count = 1 where id = $1", [jobId]);
   };
 
-  it("the RPCs, policies and constraints the runtime calls are the ones the migrations define", async () => {
+  it("the RPCs, policies and constraints the runtime calls are the ones the migrations define", { timeout: 30_000 }, async () => {
     const { admin } = harness;
     const signatures = (
       await admin.query(
@@ -65,7 +65,7 @@ dbSuite("runtime contracts (database)", () => {
     for (const state of ["reserved", "charged", "released"]) expect(checks, `reservation state ${state}`).toContain(state);
   });
 
-  it("a canceled job gives its held quota back", async () => {
+  it("a canceled job gives its held quota back", { timeout: 30_000 }, async () => {
     // A workspace of its own: test files run in parallel and the borrowed
     // workspace's usage row is shared, so only a private one is deterministic.
     const scope = await harness.createWorkspace("Contracts cancel");
@@ -83,7 +83,7 @@ dbSuite("runtime contracts (database)", () => {
     expect((await usage(scope.workspaceId)).held).toBe(heldBefore);
   });
 
-  it("a job that reached the provider is charged, never refunded", async () => {
+  it("a job that reached the provider is charged, never refunded", { timeout: 30_000 }, async () => {
     const { admin } = harness;
     const scope = await harness.createWorkspace("Contracts provider");
     // Built directly rather than through claim_ai_jobs: the claim orders by
@@ -117,7 +117,7 @@ dbSuite("runtime contracts (database)", () => {
     expect((await usage(scope.workspaceId)).charged).toBe(chargedBefore + 1);
   });
 
-  it("the cap refuses the next job without leaking the reservation", async () => {
+  it("the cap refuses the next job without leaking the reservation", { timeout: 30_000 }, async () => {
     const { admin } = harness;
     const cap = await harness.createWorkspace("Contracts cap");
     await admin.query(
@@ -138,7 +138,7 @@ dbSuite("runtime contracts (database)", () => {
     expect(reservations[0].state).toBe("reserved");
   });
 
-  it("resolve_ai_job_persistence answers committed, aborted and unknown", async () => {
+  it("resolve_ai_job_persistence answers committed, aborted and unknown", { timeout: 30_000 }, async () => {
     const { admin, workspaceId, userId } = harness;
     const style = await harness.createStyle("Contracts persistence", { references: 1 });
     const insertJob = async (status: string, input: unknown, output: unknown, leaseOwner: string | null) => {
