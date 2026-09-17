@@ -209,6 +209,7 @@ export default function StyleInpaintPage() {
           <p className="text-xs text-muted-foreground">Paint the region to change. Restore removes a painted area, Invert flips which part of the image is edited, and the mask is exported automatically.</p>
           <div className="h-[60vh] min-h-[22rem] overflow-hidden rounded-lg border border-border lg:h-[calc(100dvh-12rem)]">
             <MaskEditor
+              key={version.id}
               imageUrl={signedUrl}
               width={version.width}
               height={version.height}

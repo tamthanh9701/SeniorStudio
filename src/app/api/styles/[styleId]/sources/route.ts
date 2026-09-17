@@ -43,7 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ styl
   const sources = await Promise.all((assets ?? []).slice(0, limit).map(async (asset) => {
     const versionId = asset.current_version_id;
     if (!versionId) return { id: asset.id, name: asset.name, versionId: null, signedUrl: null, createdAt: asset.created_at };
-    const { data: version } = await service.from("asset_versions").select("storage_path").eq("id", versionId).single();
+    const { data: version } = await service.from("asset_versions").select("storage_path").eq("id", versionId).eq("asset_id", asset.id).maybeSingle();
     if (!version) return { id: asset.id, name: asset.name, versionId, signedUrl: null, createdAt: asset.created_at };
     const { data: signed } = await service.storage.from(STORAGE_BUCKET).createSignedUrl(version.storage_path, 3600);
     return { id: asset.id, name: asset.name, versionId, signedUrl: signed?.signedUrl ?? null, createdAt: asset.created_at };
@@ -158,10 +158,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
     const { error: delError } = await service.from("assets").delete().eq("id", sourceId);
     if (delError) return NextResponse.json({ error: { code: "DELETE_FAILED", message: delError.message } }, { status: 500 });
 
-    // Storage remove is best-effort after confirmed DB delete.
+    // Storage remove is best-effort after confirmed DB delete, and only for an object
+    // under this asset's own prefix: current_version_id is member-writable, so a foreign
+    // path must never reach the service-role delete.
     if (asset.current_version_id) {
-      const { data: version } = await service.from("asset_versions").select("storage_path").eq("id", asset.current_version_id).maybeSingle();
-      if (version?.storage_path) {
+      const { data: version } = await service.from("asset_versions").select("storage_path").eq("id", asset.current_version_id).eq("asset_id", asset.id).maybeSingle();
+      if (version?.storage_path && version.storage_path.includes(`/${sourceId}/`)) {
         const { error: storageError } = await service.storage.from(STORAGE_BUCKET).remove([version.storage_path]);
         if (storageError) console.error(`source storage remove failed path=${version.storage_path}: ${storageError.message}`);
       }

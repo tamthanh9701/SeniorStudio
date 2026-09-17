@@ -77,6 +77,7 @@ function compatible(model: ModelEntry, request: ExecutionPlanRequest, referenceC
 export async function resolveImageExecutionPlan(
   client: SupabaseClient,
   request: ExecutionPlanRequest,
+  service: SupabaseClient,
 ): Promise<ExecutionPlan> {
   const requested = request.requestedModelId as SupportedModelId;
   if (!/^(openai\/gpt-image-2|google\/[a-z0-9._-]+)$/.test(request.requestedModelId)) throw new Error("INVALID_MODEL");
@@ -87,9 +88,9 @@ export async function resolveImageExecutionPlan(
   const workspaceId = await resolveUserWorkspaceId(client, user.id);
   if (!workspaceId) throw new Error("NOT_FOUND");
   const provider = providerForModel(requested);
-  if (!(await getProviderApiKey(provider, { user: client, workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
+  if (!(await getProviderApiKey(provider, { service, workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
 
-  const catalog = (await getModelCatalog(client, workspaceId)) as ModelEntry[];
+  const catalog = (await getModelCatalog(service, workspaceId)) as ModelEntry[];
   const requestedEntry = catalog.find((entry) => entry.id === requested);
   if (!requestedEntry) throw new Error("INVALID_MODEL");
   if (!requestedEntry.operations.includes(request.operation)) throw new Error("INVALID_MODEL");

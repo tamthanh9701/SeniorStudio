@@ -33,11 +33,21 @@ export async function requireProjectOwnership(client: SupabaseClient, workspaceI
   return data;
 }
 
+export async function requireStyleOwnership(client: SupabaseClient, workspaceId: string, styleId: string) {
+  const { data, error } = await client.from("styles").select("id,workspace_id").eq("id", styleId).maybeSingle();
+  if (error) throw error;
+  if (!data || data.workspace_id !== workspaceId) throw new Error("NOT_FOUND");
+  return data;
+}
+
+/** Project assets are owned through their project, style assets through their style. */
 export async function requireAssetOwnership(client: SupabaseClient, workspaceId: string, assetId: string) {
-  const { data, error } = await client.from("assets").select("id,project_id").eq("id", assetId).maybeSingle();
+  const { data, error } = await client.from("assets").select("id,project_id,style_id").eq("id", assetId).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("NOT_FOUND");
-  await requireProjectOwnership(client, workspaceId, data.project_id);
+  if (data.project_id) await requireProjectOwnership(client, workspaceId, data.project_id);
+  else if (data.style_id) await requireStyleOwnership(client, workspaceId, data.style_id);
+  else throw new Error("NOT_FOUND");
   return data;
 }
 

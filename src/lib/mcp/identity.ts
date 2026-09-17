@@ -24,7 +24,7 @@ export async function resolveMcpAuthContext(
 ): Promise<McpAuthContext> {
   const serviceClient = getServiceClient();
   const normalizedEmail = identity.email.trim().toLowerCase();
-  if (!normalizedEmail || (identity.provider === "auth0" && identity.emailVerified !== true)) {
+  if (!normalizedEmail || identity.emailVerified !== true) {
     throw new Error("Unauthorized");
   }
   const column = identityColumn(identity);
@@ -35,20 +35,11 @@ export async function resolveMcpAuthContext(
     .maybeSingle();
   if (lookupError) throw lookupError;
   if (!existing) {
-    const { data: byEmail, error: emailError } = await serviceClient
-      .from("workspace_members").select("workspace_id,supabase_user_id,auth0_sub,email")
-      .ilike("email", normalizedEmail).maybeSingle();
-    if (emailError) throw emailError;
-    if (byEmail && ((identity.provider === "auth0" && byEmail.auth0_sub && byEmail.auth0_sub !== identity.subject) ||
-      (identity.provider === "supabase" && byEmail.supabase_user_id && byEmail.supabase_user_id !== identity.subject))) {
-      throw new Error("Unauthorized");
-    }
-    const { error: bootstrapError } = await serviceClient.rpc("bootstrap_owner_workspace", {
-      p_email: normalizedEmail,
-      p_supabase_user_id: identity.provider === "supabase" ? identity.subject : null,
-      p_auth0_sub: identity.provider === "auth0" ? identity.subject : null,
-    });
-    if (bootstrapError) throw bootstrapError;
+    // An authenticated stranger is not a member of anything. This used to bootstrap the
+    // caller's email into the first workspace, which with signups enabled handed any new
+    // account the production tenant (reproduced 2026-09-17); membership is granted by a
+    // workspace, never by a request.
+    throw new Error("Unauthorized");
   }
   const { data: member, error: memberError } = await serviceClient
     .from("workspace_members").select("workspace_id,supabase_user_id,auth0_sub,email")

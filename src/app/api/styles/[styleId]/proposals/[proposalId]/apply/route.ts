@@ -33,7 +33,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     if (proposal.applied_at) throw new StyleError("STYLE_CONFLICT", "Proposal already applied");
     if (proposal.base_updated_at !== style.updated_at) throw new StyleError("STYLE_VERSION_CONFLICT", "Style was modified since proposal was created");
 
-    const service = getServiceClient();
     if (proposal.kind === "synthesis") {
       const payload = proposal.payload as Record<string, unknown>;
       const candidateSchema = payload.candidate_schema as Record<string, unknown>;
@@ -49,7 +48,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       }
       const operability = scoreStyleOperability({ promptSchema: lintResult.schema as unknown as Record<string, unknown> });
 
-      await service.rpc("commit_style_schema_mutation", {
+      // The caller's session: commit_style_schema_mutation rejects a service-role call.
+      const { error: commitError } = await supabase.rpc("commit_style_schema_mutation", {
         p_style_id: styleId,
         p_expected_updated_at: style.updated_at,
         p_source: "user_validation",
@@ -59,6 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
         p_style_fields: { operability },
         p_metadata: { proposalId, wishes: payload.user_wishes },
       });
+      if (commitError) throw new StyleError("SAVE_FAILED", commitError.message);
 
       await supabase.from("style_proposals").update({ applied_at: new Date().toISOString() }).eq("id", proposalId);
       return NextResponse.json({ ok: true });
@@ -83,7 +84,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
     const quality = critiqueStyleSchema({ schema: lintResult.schema, contract });
     const operability = scoreStyleOperability({ promptSchema: lintResult.schema as unknown as Record<string, unknown> });
 
-    await service.rpc("commit_style_schema_mutation", {
+    const { error: commitError } = await supabase.rpc("commit_style_schema_mutation", {
       p_style_id: styleId,
       p_expected_updated_at: style.updated_at,
       p_source: "tuning",
@@ -93,6 +94,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       p_style_fields: { operability },
       p_metadata: { proposalId, selectedChangeIds: parsed.data.selectedChangeIds },
     });
+    if (commitError) throw new StyleError("SAVE_FAILED", commitError.message);
 
     await supabase.from("style_proposals").update({ applied_at: new Date().toISOString() }).eq("id", proposalId);
     return NextResponse.json({ ok: true });

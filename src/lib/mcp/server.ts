@@ -207,7 +207,8 @@ server.tool(
         .from("asset_versions")
         .select("storage_path")
         .eq("id", asset.current_version_id)
-        .single();
+        .eq("asset_id", asset.id)
+        .maybeSingle();
 
       if (version) {
         signedUrl = await getSignedUrl(serviceClient, version.storage_path);
@@ -276,13 +277,17 @@ server.tool(
     const targetVersionId = version_id || asset.current_version_id;
     if (!targetVersionId) throw new Error("No version available");
 
+    // The version must belong to the asset the caller proved they own: a foreign
+    // version id used to be read - and signed - with the service role.
     const { data: version, error: versionError } = await serviceClient
       .from("asset_versions")
       .select("*")
       .eq("id", targetVersionId)
-      .single();
+      .eq("asset_id", asset_id)
+      .maybeSingle();
 
     if (versionError) throw versionError;
+    if (!version) throw new Error("NOT_FOUND");
 
     const signedUrl = await getSignedUrl(serviceClient, version.storage_path);
 
@@ -488,13 +493,17 @@ server.tool(
     const targetVersionId = version_id || asset.current_version_id;
     if (!targetVersionId) throw new Error("No version available");
 
+    // The version must belong to the asset the caller proved they own: a foreign
+    // version id used to be read - and signed - with the service role.
     const { data: version, error: versionError } = await serviceClient
       .from("asset_versions")
       .select("*")
       .eq("id", targetVersionId)
-      .single();
+      .eq("asset_id", asset_id)
+      .maybeSingle();
 
     if (versionError) throw versionError;
+    if (!version) throw new Error("NOT_FOUND");
 
     const signedUrl = await getSignedUrl(serviceClient, version.storage_path);
 

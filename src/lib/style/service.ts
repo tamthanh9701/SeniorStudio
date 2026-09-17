@@ -102,7 +102,7 @@ export async function analyzeStyleProfile(params: {
   }));
   const referenceSummary = await preprocessReferences(inputs);
 
-  const config = await resolveStyleProviderConfig({ user: client, service, workspaceId: style.workspace_id });
+  const config = await resolveStyleProviderConfig({ service, workspaceId: style.workspace_id });
   const provider = buildProvider(config.provider, config.model, config.apiKey);
   // The provider receives bounded copies; the report above was measured on the originals.
   const analysisReferences = await downscaleReferences(inputs);

@@ -24,6 +24,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
   const [tool, setTool] = useState<"generate" | "inpaint">("generate");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [cancelPendingId, setCancelPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
   const refreshed = useRef(new Set<string>());
@@ -47,27 +48,51 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
     const selectedModel = availableModels.find((model) => model.id === settings.modelId);
     if (!prompt.trim() || !selectedModel) return;
     setSubmitting(true); setError(null);
-    const response = await fetch(`/api/projects/${project.id}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "text_to_image", model: settings.modelId as SupportedModelId, prompt, count: settings.count, size: settings.size, quality: settings.quality }) });
-    const body = await response.json();
-    const parsed = AiJobSchema.safeParse(body.job);
-    if (response.ok && parsed.success) { addJob(parsed.data); setPrompt(""); setFocusSignal((value) => value + 1); }
-    else setError(`${body.error?.code ?? "INVALID_REQUEST"}: ${body.error?.message ?? "Generation request failed"}`);
-    setSubmitting(false);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/ai-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "text_to_image", model: settings.modelId as SupportedModelId, prompt, count: settings.count, size: settings.size, quality: settings.quality }) });
+      const body = await response.json();
+      const parsed = AiJobSchema.safeParse(body.job);
+      if (response.ok && parsed.success) { addJob(parsed.data); setPrompt(""); setFocusSignal((value) => value + 1); }
+      else setError(`${body.error?.code ?? "INVALID_REQUEST"}: ${body.error?.message ?? "Generation request failed"}`);
+    } catch {
+      setError("NETWORK_ERROR: Unable to start generation");
+    } finally {
+      setSubmitting(false);
+    }
   };
-  const cancel = async (job: ProjectJobFeedItem["job"]) => { const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" }); const body = await response.json(); const parsed = AiJobSchema.safeParse(body.job); if (response.ok && parsed.success) addJob(parsed.data); else setError(`${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Cancellation failed"}`); };
+  const cancel = async (job: ProjectJobFeedItem["job"]) => {
+    if (cancelPendingId === job.id) return;
+    setCancelPendingId(job.id);
+    try {
+      const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" });
+      const body = await response.json();
+      const parsed = AiJobSchema.safeParse(body.job);
+      if (response.ok && parsed.success) addJob(parsed.data);
+      else setError(`${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Cancellation failed"}`);
+    } catch {
+      setError("NETWORK_ERROR: Unable to cancel this job");
+    } finally {
+      setCancelPendingId(null);
+    }
+  };
   const retry = (job: ProjectJobFeedItem["job"]) => { setPrompt(job.input.original_prompt ?? job.input.prompt); setSettings({ modelId: job.model, size: job.input.size, quality: job.input.quality, count: job.input.count }); setTool("generate"); setFocusSignal((value) => value + 1); };
   const [deleteAssetTarget, setDeleteAssetTarget] = useState<{ id: string; name: string } | null>(null);
   const [deletingAsset, setDeletingAsset] = useState(false);
   const handleDeleteAsset = async () => {
     if (!deleteAssetTarget) return;
     setDeletingAsset(true);
-    const response = await fetch(`/api/assets/${deleteAssetTarget.id}`, { method: "DELETE" });
-    if (response.ok) {
-      setSelectedIndex(0);
-      router.refresh();
+    try {
+      const response = await fetch(`/api/assets/${deleteAssetTarget.id}`, { method: "DELETE" });
+      if (response.ok) {
+        setSelectedIndex(0);
+        router.refresh();
+      }
+    } catch {
+      setError("NETWORK_ERROR: Unable to delete this asset");
+    } finally {
+      setDeletingAsset(false);
+      setDeleteAssetTarget(null);
     }
-    setDeletingAsset(false);
-    setDeleteAssetTarget(null);
   };
   const selectResult = ({ url }: { url: string; assetId?: string }) => { const index = canvasAssets.findIndex((asset) => asset.signedUrl === url); if (index >= 0) setSelectedIndex(index); };
   const inspector = <ToolInspector tool={tool} setTool={setTool} models={availableModels} settings={settings} setSettings={setSettings} selectedAsset={selectedAsset} projectId={project.id} />;
@@ -88,7 +113,7 @@ export default function ProjectWorkspace({ project, projects, userEmail, assets,
             if (asset) setDeleteAssetTarget(asset);
           }}
         />
-        {items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} />}
+        {items.length > 0 && <JobTimeline items={items} onRetry={retry} onCancel={cancel} onSelectResult={selectResult} pendingCancelId={cancelPendingId} />}
       </div>
       <GenerationComposer
         focusSignal={focusSignal}

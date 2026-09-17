@@ -19,7 +19,7 @@ function LoginInner() {
   const [mode, setMode] = useState<"signin" | "reset">("signin");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(
-    initialError ? { kind: "error", text: decodeURIComponent(initialError) } : null,
+    initialError ? { kind: "error", text: initialError } : null,
   );
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {

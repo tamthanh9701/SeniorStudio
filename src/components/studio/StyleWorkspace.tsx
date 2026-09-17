@@ -223,6 +223,7 @@ export default function StyleWorkspace({
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [cancelPendingId, setCancelPendingId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [composerOpen, setComposerOpen] = useState(compose);
   const [imageQuery, setImageQuery] = useState("");
@@ -372,14 +373,22 @@ export default function StyleWorkspace({
   const selectTab = (next: WorkspaceTab) => { setTab(next); setFeedback(null); };
 
   const cancelJob = async (job: AiJob) => {
-    const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setFeedback({ kind: "error", text: `${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Unable to cancel this job"}` });
-      return;
+    if (cancelPendingId === job.id) return;
+    setCancelPendingId(job.id);
+    try {
+      const response = await fetch(`/api/ai-jobs/${job.id}/cancel`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setFeedback({ kind: "error", text: `${body.error?.code ?? "CANCEL_FAILED"}: ${body.error?.message ?? "Unable to cancel this job"}` });
+        return;
+      }
+      await refresh({ silent: true });
+      setFeedback({ kind: "success", text: "Generation canceled." });
+    } catch {
+      setFeedback({ kind: "error", text: "NETWORK_ERROR: Unable to cancel this job" });
+    } finally {
+      setCancelPendingId(null);
     }
-    await refresh({ silent: true });
-    setFeedback({ kind: "success", text: "Generation canceled." });
   };
 
   const deleteImage = async (asset: GalleryAsset) => {
@@ -1191,7 +1200,7 @@ export default function StyleWorkspace({
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="border-t border-border">
-            <JobTimeline items={jobs} onRetry={retryJob} onCancel={(job) => void cancelJob(job)} onSelectResult={({ assetId }) => { if (assetId) router.push(`/style/${styleId}/assets/${assetId}`); }} />
+            <JobTimeline items={jobs} onRetry={retryJob} onCancel={(job) => void cancelJob(job)} onSelectResult={({ assetId }) => { if (assetId) router.push(`/style/${styleId}/assets/${assetId}`); }} pendingCancelId={cancelPendingId} />
           </CollapsibleContent>
         </Collapsible>
       )}

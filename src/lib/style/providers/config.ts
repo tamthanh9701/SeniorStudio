@@ -25,7 +25,7 @@ const DEFAULT_MODELS: Record<StyleProviderId, string> = {
  * key is reachable through provider_settings or the environment.
  */
 export async function resolveStyleProviderConfig(source: {
-  user: SupabaseClient;
+  /** Service-role client: the key column is not readable by a user session (0054). */
   service: SupabaseClient;
   workspaceId: string;
 }): Promise<StyleProviderConfig> {

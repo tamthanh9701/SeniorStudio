@@ -79,7 +79,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   const referenceSummary = await preprocessReferences(referenceBytes);
 
   try {
-    const config = await resolveStyleProviderConfig({ user: supabase, service, workspaceId: style.workspace_id });
+    const config = await resolveStyleProviderConfig({ service, workspaceId: style.workspace_id });
     const provider: StyleAnalysisProvider = config.provider === "google"
       ? new GoogleStyleProvider(config.apiKey, config.model)
       : new OpenAiStyleProvider(config.apiKey, config.model);

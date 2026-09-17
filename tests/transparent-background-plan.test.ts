@@ -37,13 +37,13 @@ beforeEach(() => {
 describe("transparent background capability", () => {
   it("refuses a model that cannot return a transparent background", async () => {
     catalog.mockResolvedValue([{ ...INPAINT_MODELS[0], id: "google/gemini-3-pro-image", provider: "google", sizes: ["1024x1024"], qualities: ["auto"], supportsTransparentBackground: undefined }]);
-    await expect(resolveImageExecutionPlan(client, { ...request, requestedModelId: "google/gemini-3-pro-image", background: "transparent" }))
+    await expect(resolveImageExecutionPlan(client, { ...request, requestedModelId: "google/gemini-3-pro-image", background: "transparent" }, client))
       .rejects.toThrow(/transparent background/);
   });
 
   it("allows it on a capable model and keeps the request otherwise unchanged", async () => {
     catalog.mockResolvedValue(INPAINT_MODELS);
-    const plan = await resolveImageExecutionPlan(client, { ...request, background: "transparent" });
+    const plan = await resolveImageExecutionPlan(client, { ...request, background: "transparent" }, client);
     expect(plan.effectiveModelId).toBe("openai/gpt-image-2");
     expect(plan.sourceVersionId).toBe(request.sourceVersionId);
   });
@@ -51,7 +51,7 @@ describe("transparent background capability", () => {
   it("does not care about the capability when no background was requested", async () => {
     catalog.mockResolvedValue([{ ...INPAINT_MODELS[0], id: "google/gemini-3-pro-image", provider: "google", sizes: ["1024x1024"], qualities: ["auto"], supportsTransparentBackground: undefined }]);
     // Google models in this catalog accept only explicit sizes, so the request uses one.
-    const plan = await resolveImageExecutionPlan(client, { ...request, requestedModelId: "google/gemini-3-pro-image", size: "1024x1024" });
+    const plan = await resolveImageExecutionPlan(client, { ...request, requestedModelId: "google/gemini-3-pro-image", size: "1024x1024" }, client);
     expect(plan.effectiveModelId).toBe("google/gemini-3-pro-image");
   });
 });

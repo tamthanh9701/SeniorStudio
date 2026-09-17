@@ -158,7 +158,7 @@ describe("resolveImageExecutionPlan", () => {
         count: 1,
         size: "1024x1024",
         quality: "auto",
-      })
+      }, client)
     ).rejects.toThrow("SOURCE_REQUIRED");
   });
 
@@ -176,7 +176,7 @@ describe("resolveImageExecutionPlan", () => {
       count: 1,
       size: "1024x1024",
       quality: "auto",
-    });
+    }, client);
     expect(plan.operation).toBe("image_to_image");
     expect(plan.sourceVersionId).toBe(SOURCE_ID);
     expect(plan.effectiveModelId).toBe("openai/gpt-image-2");

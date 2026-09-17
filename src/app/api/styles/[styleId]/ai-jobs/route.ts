@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { AiJobSchema, CostModeSchema, FEED_COLUMNS, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
 import { styleProfilesEnabled } from "@/lib/style/flag";
-import { createClient } from "@/supabase/server";
+import { createClient, getServiceClient } from "@/supabase/server";
 import { getJobResultUrls } from "@/lib/ai/job-results";
 import { apiErrorFrom } from "@/lib/http/api-errors";
 import { z } from "zod";
@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   try {
     if (!styleProfilesEnabled()) throw new Error("INVALID_REQUEST");
     const data = parsed.data;
-    const result = await resolveStyleGenerationPlan(supabase, { operation: data.operation, requestedModelId: data.model, styleId, sourceVersionId: data.operation === "image_to_image" ? data.sourceVersionId : undefined, prompt: data.prompt, referenceIds: data.referenceIds, libraryReferenceIds: data.libraryReferenceIds, background: data.background ?? null, contentOverrides: data.contentOverrides ?? null, costMode: data.costMode, count: data.count, size: data.size, quality: data.quality, preserveRequestedModel: true });
+    const result = await resolveStyleGenerationPlan(supabase, { operation: data.operation, requestedModelId: data.model, styleId, sourceVersionId: data.operation === "image_to_image" ? data.sourceVersionId : undefined, prompt: data.prompt, referenceIds: data.referenceIds, libraryReferenceIds: data.libraryReferenceIds, background: data.background ?? null, contentOverrides: data.contentOverrides ?? null, costMode: data.costMode, count: data.count, size: data.size, quality: data.quality, preserveRequestedModel: true }, getServiceClient());
     if (data.consent.planHash !== result.plan.planHash) return NextResponse.json({ error: { code: "PLAN_CONSENT_MISMATCH", message: "Execution plan changed; consent must be renewed", plan: result.plan } }, { status: 409 });
     const { data: job, error } = await supabase.rpc("enqueue_style_group_job", { p_style_id: styleId, p_requested_by: user.id, p_operation: data.operation, p_model: result.plan.effectiveModelId, p_packet: result.packet, p_mask_id: null });
     if (error) throw error;

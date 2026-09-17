@@ -30,15 +30,20 @@ export default function ClarificationForm({ styleId, expectedUpdatedAt, question
   const submit = async () => {
     setSubmitting(true);
     setError(null);
-    const response = await fetch(`/api/styles/${styleId}/synthesize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedUpdatedAt, userWishes: wishes || undefined, answers: Object.values(answers) }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (response.ok) await onUpdated();
-    else setError(`${body.error?.code ?? "SYNTHESIS_FAILED"}: ${body.error?.message ?? "Synthesis failed"}`);
-    setSubmitting(false);
+    try {
+      const response = await fetch(`/api/styles/${styleId}/synthesize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedUpdatedAt, userWishes: wishes || undefined, answers: Object.values(answers) }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) await onUpdated();
+      else setError(`${body.error?.code ?? "SYNTHESIS_FAILED"}: ${body.error?.message ?? "Synthesis failed"}`);
+    } catch {
+      setError("NETWORK_ERROR: Unable to request a synthesis proposal");
+    } finally {
+      setSubmitting(false);
+    }
   };
   return <Card className="gap-3 py-4">
     <CardHeader className="px-4">

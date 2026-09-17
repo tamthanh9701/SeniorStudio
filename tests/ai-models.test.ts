@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const modelsList = vi.fn();
 const maybeSingle = vi.fn<() => Promise<{ data: { api_key: string } | null }>>(async () => ({ data: { api_key: "gemini-test" } }));
 const eq = () => ({ eq, maybeSingle });
-const catalogClient = { from: () => ({ select: () => ({ eq }) }) } as never;
+const serviceClient = { from: () => ({ select: () => ({ eq }) }) } as never;
+
+vi.mock("../src/supabase/server", () => ({ getServiceClient: () => serviceClient }));
 
 vi.mock("@google/genai", () => ({
   GoogleGenAI: class { models = { list: modelsList }; },
@@ -26,7 +28,7 @@ describe("AI model catalog", () => {
   });
 
   it("returns Google image models when a provider key is configured", async () => {
-    expect((await getModelCatalog(catalogClient, "ws-test")).map((model) => model.id)).toEqual([
+    expect((await getModelCatalog(serviceClient, "ws-test")).map((model) => model.id)).toEqual([
       "openai/gpt-image-2",
       "google/gemini-3.1-flash-image",
       "google/gemini-3.1-flash-lite-image",
@@ -37,12 +39,12 @@ describe("AI model catalog", () => {
 
   it("returns only OpenAI when Google is unconfigured", async () => {
     maybeSingle.mockResolvedValueOnce({ data: null });
-    expect((await getModelCatalog(catalogClient, "ws-test")).map((model) => model.id)).toEqual(["openai/gpt-image-2"]);
+    expect((await getModelCatalog(serviceClient, "ws-test")).map((model) => model.id)).toEqual(["openai/gpt-image-2"]);
   });
 
   it("rejects non-image and incompatible operation combinations", async () => {
-    await expect(assertModelSupports("google/gemini-3.7-flash", "text_to_image", catalogClient, "ws-test")).rejects.toThrow("INVALID_MODEL");
-    await expect(assertModelSupports("google/gemini-3.1-flash-image", "inpaint", catalogClient, "ws-test")).rejects.toThrow("INVALID_MODEL");
-    expect((await assertModelSupports("openai/gpt-image-2", "inpaint", catalogClient, "ws-test")).provider).toBe("openai");
+    await expect(assertModelSupports("google/gemini-3.7-flash", "text_to_image", serviceClient, "ws-test")).rejects.toThrow("INVALID_MODEL");
+    await expect(assertModelSupports("google/gemini-3.1-flash-image", "inpaint", serviceClient, "ws-test")).rejects.toThrow("INVALID_MODEL");
+    expect((await assertModelSupports("openai/gpt-image-2", "inpaint", serviceClient, "ws-test")).provider).toBe("openai");
   });
 });

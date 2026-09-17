@@ -134,8 +134,10 @@ export async function POST(request: NextRequest) {
     return unauthorized("Invalid token");
   }
 
+  // Deployment is single-tenant: any identity that is not the owner's is refused here,
+  // whatever it authenticated with.
   const ownerEmail = getEnv().OWNER_EMAIL.trim().toLowerCase();
-  if (verified.identity.provider === "auth0" && verified.identity.email.trim().toLowerCase() !== ownerEmail) {
+  if (verified.identity.email.trim().toLowerCase() !== ownerEmail) {
     return forbidden();
   }
 

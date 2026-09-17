@@ -73,8 +73,8 @@ function googleCatalogEntry(model: Model): ModelCatalogEntry | null {
   };
 }
 
-export async function getModelCatalog(catalogClient: SupabaseClient, workspaceId: string): Promise<ModelCatalogEntry[]> {
-  const apiKey = await getProviderApiKey("google", { user: catalogClient, workspaceId });
+export async function getModelCatalog(catalogService: SupabaseClient, workspaceId: string): Promise<ModelCatalogEntry[]> {
+  const apiKey = await getProviderApiKey("google", { service: catalogService, workspaceId });
   const catalog = [OPENAI_MODEL];
   if (!apiKey) return catalog;
   try {
@@ -89,14 +89,14 @@ export async function getModelCatalog(catalogClient: SupabaseClient, workspaceId
   return catalog;
 }
 
-export async function getModel(modelId: string, catalogClient: SupabaseClient, workspaceId: string): Promise<ModelCatalogEntry> {
-  const model = (await getModelCatalog(catalogClient, workspaceId)).find((entry) => entry.id === modelId);
+export async function getModel(modelId: string, catalogService: SupabaseClient, workspaceId: string): Promise<ModelCatalogEntry> {
+  const model = (await getModelCatalog(catalogService, workspaceId)).find((entry) => entry.id === modelId);
   if (!model) throw new Error("INVALID_MODEL");
   return model;
 }
 
-export async function assertModelSupports(modelId: SupportedModelId, operation: AiOperation, catalogClient: SupabaseClient, workspaceId: string) {
-  const model = await getModel(modelId, catalogClient, workspaceId);
+export async function assertModelSupports(modelId: SupportedModelId, operation: AiOperation, catalogService: SupabaseClient, workspaceId: string) {
+  const model = await getModel(modelId, catalogService, workspaceId);
   if (!model.operations.includes(operation)) throw new Error("INVALID_MODEL");
   return model;
 }

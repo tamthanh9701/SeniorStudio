@@ -100,7 +100,7 @@ function parseDefinition(style: StyleRow): ConfirmedStyleDefinition | null {
   }
 }
 
-export async function resolveStyleGenerationPlan(client: SupabaseClient, request: StyleGenerationPlanRequest): Promise<StyleGenerationPlan> {
+export async function resolveStyleGenerationPlan(client: SupabaseClient, request: StyleGenerationPlanRequest, service: SupabaseClient): Promise<StyleGenerationPlan> {
   const prompt = request.prompt?.trim() ?? "";
   const { data: styleData, error: styleError } = await client
     .from("styles")
@@ -202,7 +202,7 @@ export async function resolveStyleGenerationPlan(client: SupabaseClient, request
   const warnings: string[] = [];
   const totalReferences = orderedReferences.length;
   if (totalReferences > 0) {
-    const catalog = await getModelCatalog(client, style.workspace_id);
+    const catalog = await getModelCatalog(service, style.workspace_id);
     const entry = catalog.find((model) => model.id === request.requestedModelId);
     // A non-text operation spends one input slot on the source image itself.
     const capacity = (entry?.maxInputImages ?? 4) - (request.operation === "text_to_image" ? 0 : 1);
@@ -241,7 +241,7 @@ export async function resolveStyleGenerationPlan(client: SupabaseClient, request
     referenceIds,
     styleId: request.styleId,
     preserveRequestedModel: true,
-  });
+ }, service);
   const packet = compileStyleGenerationPacket({
     styleId: request.styleId,
     styleRevision,

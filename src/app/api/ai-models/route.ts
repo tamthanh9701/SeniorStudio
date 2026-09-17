@@ -1,7 +1,7 @@
 
 import { NextResponse } from "next/server";
 import { getModelCatalog, resolveUserWorkspaceId } from "@/lib/ai/models";
-import { createClient } from "@/supabase/server";
+import { createClient, getServiceClient } from "@/supabase/server";
 import { getVerifiedUser } from "@/lib/auth/verified-user";
 
 export async function GET() {
@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const workspaceId = await resolveUserWorkspaceId(supabase, user.id);
     if (!workspaceId) return NextResponse.json({ models: [] });
-    return NextResponse.json({ models: await getModelCatalog(supabase, workspaceId) });
+    return NextResponse.json({ models: await getModelCatalog(getServiceClient(), workspaceId) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load provider models";
     return NextResponse.json({ error: { code: "PROVIDER_MODEL_CATALOG_UNAVAILABLE", message } }, { status: 503 });

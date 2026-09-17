@@ -34,19 +34,24 @@ export default function SchemaEditor({ styleId, schema, onSaved }: SchemaEditorP
   const save = async () => {
     setSaving(true);
     setMessage(null);
-    const response = await fetch(`/api/styles/${styleId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schema: draft }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (response.ok) {
-      setMessage("Schema saved.");
-      await onSaved();
-    } else {
-      setMessage(`${body.error?.code ?? "UPDATE_FAILED"}: ${body.error?.message ?? "Unable to save schema"}`);
+    try {
+      const response = await fetch(`/api/styles/${styleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schema: draft }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setMessage("Schema saved.");
+        await onSaved();
+      } else {
+        setMessage(`${body.error?.code ?? "UPDATE_FAILED"}: ${body.error?.message ?? "Unable to save schema"}`);
+      }
+    } catch {
+      setMessage("NETWORK_ERROR: Unable to save schema");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return <div className="space-y-4">

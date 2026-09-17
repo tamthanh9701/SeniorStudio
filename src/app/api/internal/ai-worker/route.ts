@@ -6,6 +6,7 @@ import { STORAGE_BUCKET } from "@/db/schema";
 import { getEnv } from "@/env";
 import { getServiceClient } from "@/supabase/server";
 import { LEASE_SECONDS, processAiJob, type WorkerOutcome } from "@/lib/ai/worker";
+import { secureEquals } from "@/lib/security/secure-compare";
 
 const MASK_SWEEP_LIMIT = 100;
 /** Long enough that an in-flight worker can still finish (its lease is 180 s). */
@@ -79,8 +80,9 @@ async function reconcilePendingUploads(client: ReturnType<typeof getServiceClien
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
-  const expected = `Bearer ${getEnv().AI_WORKER_SECRET}`;
-  if (request.headers.get("authorization") !== expected) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  if (!secureEquals(request.headers.get("authorization"), `Bearer ${getEnv().AI_WORKER_SECRET}`)) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
   const client = getServiceClient();
   const workerId = `vercel-${crypto.randomUUID()}`;
   const startedAt = Date.now();

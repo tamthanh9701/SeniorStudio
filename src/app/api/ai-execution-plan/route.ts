@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/supabase/server";
+import { createClient, getServiceClient } from "@/supabase/server";
 import { resolveStyleGenerationPlan } from "@/lib/style/generation-plan";
 import { resolveUserWorkspaceId } from "@/lib/ai/models";
 import { resolveImageExecutionPlan } from "@/lib/ai/execution-plan";
@@ -46,16 +46,16 @@ export async function POST(request: Request) {
         const { data: asset } = await supabase.from("assets").select("id, style_id").eq("id", parsed.data.sourceAssetId).eq("style_id", parsed.data.styleId).single();
         const { data: source } = await supabase.from("asset_versions").select("id, prompt, style_generation").eq("id", parsed.data.sourceVersionId).eq("asset_id", parsed.data.sourceAssetId).single();
         if (!asset || !source) throw new Error("VERSION_CONFLICT");
-        const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, libraryReferenceIds: parsed.data.libraryReferenceIds, sourceVersionId: parsed.data.sourceVersionId, sourceAssetId: parsed.data.sourceAssetId, sourcePacket: source.style_generation, sourceOriginalPrompt: source.prompt, maskId: parsed.data.maskId });
+        const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, libraryReferenceIds: parsed.data.libraryReferenceIds, sourceVersionId: parsed.data.sourceVersionId, sourceAssetId: parsed.data.sourceAssetId, sourcePacket: source.style_generation, sourceOriginalPrompt: source.prompt, maskId: parsed.data.maskId }, getServiceClient());
         return NextResponse.json({ plan: result.plan });
       }
-      const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, libraryReferenceIds: parsed.data.libraryReferenceIds, sourceAssetId: null });
+      const result = await resolveStyleGenerationPlan(supabase, { ...input, styleId: parsed.data.styleId, prompt: parsed.data.prompt.trim(), referenceIds: parsed.data.referenceIds, libraryReferenceIds: parsed.data.libraryReferenceIds, sourceAssetId: null }, getServiceClient());
       return NextResponse.json({ plan: result.plan });
     }
     const workspaceId = await resolveUserWorkspaceId(supabase, user.id);
     if (!workspaceId) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Workspace not found" } }, { status: 404 });
     if (parsed.data.operation === "image_to_image" && !parsed.data.sourceVersionId) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "sourceVersionId required for image_to_image" } }, { status: 400 });
-    const plan = await resolveImageExecutionPlan(supabase, input);
+    const plan = await resolveImageExecutionPlan(supabase, input, getServiceClient());
     return NextResponse.json({ plan });
   } catch (error) {
     // Style-domain failures carry their own code; the caller needs it (for

@@ -30,13 +30,15 @@ function mockClient() {
 
 describe("getProviderApiKey", () => {
   it("returns null for invalid provider string", async () => {
-    const result = await getProviderApiKey("invalid-provider", { workspaceId: "ws-1" });
+    const result = await getProviderApiKey("invalid-provider", { service: {} as never, workspaceId: "ws-1" });
     expect(result).toBeNull();
   });
 
   it("returns null when provider is valid but no key configured", async () => {
     const client = { from: vi.fn(() => makeChain()) } as never;
-    const result = await getProviderApiKey("openai", { user: client, workspaceId: "ws-1" });
+    // Keys are only ever read with the service client: 0054 revoked the column from
+    // authenticated, so a caller session cannot select it.
+    const result = await getProviderApiKey("openai", { service: client, workspaceId: "ws-1" });
     expect(result).toBeNull();
   });
 });

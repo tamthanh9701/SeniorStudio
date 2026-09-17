@@ -81,9 +81,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
   const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId).is("retired_at", null).order("created_at");
   const referencePaths = (references ?? []).slice(0, 4).map((reference) => reference.storage_path);
   const generatedPaths = (versions ?? []).map((version) => version.storage_path);
-  // One signing round-trip for both groups; the vision call needs absolute URLs.
-  const signed = await getSignedUrls(supabase, [...generatedPaths, ...referencePaths]);
+  const uploadedPaths = uploadedVersions.map((source) => source.storage_path);
+  // One signing round-trip for all three groups; the vision call needs absolute URLs,
+  // and a bare storage path made every feedback request fail as INVALID_REQUEST.
+  const signed = await getSignedUrls(supabase, [...generatedPaths, ...uploadedPaths, ...referencePaths]);
   const validGeneratedUrls = generatedPaths.map((path) => signed.get(path)).filter((url): url is string => Boolean(url));
+  const validUploadedUrls = uploadedPaths.map((path) => signed.get(path)).filter((url): url is string => Boolean(url));
   const validReferenceUrls = referencePaths.map((path) => signed.get(path)).filter((url): url is string => Boolean(url));
 
   const provenance = (versions ?? []).map((version, index) => ({
@@ -110,7 +113,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sty
       workspaceId: style.workspace_id,
       systemPrompt: parsed.data.focus === "prompt" ? `${REFINE_PROMPT_SYSTEM}\n\n${PROMPT_FOCUS_INSTRUCTION}` : REFINE_PROMPT_SYSTEM,
       userMessage: message,
-      imageUrls: [...validGeneratedUrls, ...uploadedVersions.map((source) => source.storage_path), ...validReferenceUrls],
+      imageUrls: [...validGeneratedUrls, ...validUploadedUrls, ...validReferenceUrls],
     });
     const suggestionRecord = suggestion as Record<string, unknown>;
     const issues = Array.isArray(suggestionRecord.issues) ? suggestionRecord.issues : [];

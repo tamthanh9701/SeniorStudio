@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { getEnv } from "@/env";
 import { getServiceClient } from "@/supabase/server";
+import { secureEquals } from "@/lib/security/secure-compare";
 
 export async function GET(request: Request) {
   const env = getEnv();
-  const authHeader = request.headers.get("authorization");
-  
-  if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
+  if (!secureEquals(request.headers.get("authorization"), `Bearer ${env.CRON_SECRET}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

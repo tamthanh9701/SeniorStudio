@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound, redirect } from "next/navigation";
 import StyleWorkspace, { type WorkspaceTab } from "@/components/studio/StyleWorkspace";
-import { createClient } from "@/supabase/server";
+import { createClient, getServiceClient } from "@/supabase/server";
 import { getModelCatalog } from "@/lib/ai/models";
 import { AiJobSchema, FEED_COLUMNS, FEED_LIMIT, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
@@ -51,7 +51,7 @@ export default async function StyleGroupPage({
   ]);
   const workspaceId = workspaceMember?.workspace_id;
   // The catalog needs the workspace, so it follows the membership lookup.
-  const modelCatalog = workspaceId ? await getModelCatalog(supabase, workspaceId) : [];
+  const modelCatalog = workspaceId ? await getModelCatalog(getServiceClient(), workspaceId) : [];
 
   if (!style) notFound();
 

@@ -30,7 +30,7 @@ export async function runStyleVisionAction(params: {
   userMessage: string;
   imageUrls: string[];
 }): Promise<unknown> {
-  const config = await resolveStyleProviderConfig({ user: params.client, service: getServiceClient(), workspaceId: params.workspaceId });
+  const config = await resolveStyleProviderConfig({ service: getServiceClient(), workspaceId: params.workspaceId });
   const images = await Promise.all(params.imageUrls.map(loadImage));
   let rawText = "";
 

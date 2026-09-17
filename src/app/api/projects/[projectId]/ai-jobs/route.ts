@@ -37,8 +37,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     const { data: member } = await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single();
     if (!member) throw new Error("NOT_FOUND");
     const workspaceId = member.workspace_id;
-    const model = await assertModelSupports(parsed.data.model, "text_to_image", supabase, workspaceId);
-    if (!(await getProviderApiKey(model.provider, { user: supabase, service: getServiceClient(), workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
+    const model = await assertModelSupports(parsed.data.model, "text_to_image", getServiceClient(), workspaceId);
+    if (!(await getProviderApiKey(model.provider, { service: getServiceClient(), workspaceId }))) throw new Error("PROVIDER_NOT_CONFIGURED");
     if (!model.sizes.includes(parsed.data.size as never) || !model.qualities.includes(parsed.data.quality as never)) throw new Error("INVALID_MODEL");
     // Project generation never applies a style: a style is applied only in the
     // Style module, where the confirmed definition and its reference images are

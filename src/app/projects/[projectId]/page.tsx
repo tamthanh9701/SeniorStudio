@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound, redirect } from "next/navigation";
 import { getSignedUrl } from "@/lib/assets/service";
-import { createClient } from "@/supabase/server";
+import { createClient, getServiceClient } from "@/supabase/server";
 import { getModelCatalog } from "@/lib/ai/models";
 import { AiJobSchema, type ProjectJobFeedItem } from "@/db/ai-jobs";
 import { getJobResultUrls } from "@/lib/ai/job-results";
@@ -27,7 +27,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     supabase.from("projects").select("id, name, created_at").eq("id", projectId).maybeSingle(),
     supabase.from("projects").select("id, name").order("created_at", { ascending: false }),
     supabase.from("assets").select("id, name, kind, current_version_id, created_at").eq("project_id", projectId).order("created_at", { ascending: false }),
-    workspaceId ? getModelCatalog(supabase, workspaceId) : Promise.resolve([]),
+    workspaceId ? getModelCatalog(getServiceClient(), workspaceId) : Promise.resolve([]),
     supabase.from("ai_jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(50),
   ]);
   if (projectError) throw new Error(`Unable to load project: ${projectError.message}`);

@@ -44,13 +44,31 @@ export function registerMcpEditor(server: McpServer) {
   </div>
   <script>
     const params = new URLSearchParams(window.location.search);
-    document.getElementById('image').src = params.get('url') || '';
+    // The query string is caller-supplied data: only the studio's own origin and the
+    // storage host are ever loaded, and the studio opens without an opener.
+    const STUDIO_ORIGIN = 'https://senior-studio.vercel.app';
+    const ALLOWED_IMAGE_HOSTS = ['ykcyfzlkpmohipwraqhi.supabase.co'];
+    function safeImageUrl(value) {
+      try {
+        const url = new URL(value || '');
+        return url.protocol === 'https:' && ALLOWED_IMAGE_HOSTS.includes(url.hostname) ? url.href : '';
+      } catch { return ''; }
+    }
+    function safeStudioUrl(value) {
+      try {
+        const url = new URL(value || '/');
+        return url.origin === STUDIO_ORIGIN ? url.href : '/';
+      } catch { return '/'; }
+    }
+    const imageUrl = safeImageUrl(params.get('url'));
+    document.getElementById('image').src = imageUrl;
     document.getElementById('title').textContent = params.get('name') || 'Asset';
     document.getElementById('meta').textContent = params.get('meta') || '';
-    function openInStudio() { window.open(params.get('studioUrl') || '/', '_blank'); }
+    function openInStudio() { window.open(safeStudioUrl(params.get('studioUrl')), '_blank', 'noopener,noreferrer'); }
     function download() {
+      if (!imageUrl) return;
       const anchor = document.createElement('a');
-      anchor.href = params.get('url') || '';
+      anchor.href = imageUrl;
       anchor.download = params.get('name') || 'download';
       anchor.click();
     }
@@ -74,12 +92,13 @@ export function registerMcpEditor(server: McpServer) {
       requireMcpScope(ctx, 'assets:read');
       const serviceClient = getServiceClient();
 
-      // Verify asset belongs to caller's workspace through project ownership
-      await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
-
+      // Verify asset belongs to caller's workspace and build the editor route the asset
+      // actually lives at: /assets/{id}/edit does not exist.
+      const asset = await requireAssetOwnership(serviceClient, ctx.workspaceId, asset_id);
+      const container = asset.project_id ? `projects/${asset.project_id}` : `style/${asset.style_id}`;
       const query = version_id ? `?version=${version_id}` : "";
       const editorUrl =
-        `https://senior-studio.vercel.app/assets/${asset_id}/edit${query}`;
+        `https://senior-studio.vercel.app/${container}/assets/${asset_id}/edit${query}`;
 
       return {
         content: [

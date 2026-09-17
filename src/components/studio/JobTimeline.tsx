@@ -37,11 +37,13 @@ const STATUS_DOT_CLASS: Record<AiJobStatus, string> = {
   canceled: "bg-muted-foreground",
 };
 
-export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }: {
+export default function JobTimeline({ items, onRetry, onCancel, onSelectResult, pendingCancelId = null }: {
   items: ProjectJobFeedItem[];
   onRetry: (job: AiJob) => void;
   onCancel: (job: AiJob) => void;
   onSelectResult: (result: { url: string; assetId?: string }) => void;
+  /** The job whose cancel request is in flight, so its button stays disabled. */
+  pendingCancelId?: string | null;
 }) {
   // Resolved after mount so the server and the client agree on "today" before
   // the first paint; until then the bands show the date alone.
@@ -117,7 +119,7 @@ export default function JobTimeline({ items, onRetry, onCancel, onSelectResult }
                 )}
                 {job.status === "failed" && <FailedCard job={job} onRetry={onRetry} />}
                 {job.status === "queued" && (
-                  <Button variant="outline" className="mt-4" onClick={() => onCancel(job)}>
+                  <Button variant="outline" className="mt-4" onClick={() => onCancel(job)} disabled={pendingCancelId === job.id}>
                     <Square className="size-3.5" />
                     Cancel
                   </Button>
