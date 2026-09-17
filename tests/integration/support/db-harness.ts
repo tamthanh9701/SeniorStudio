@@ -183,22 +183,23 @@ export async function connectHarness(): Promise<Harness> {
   }
 
   async function createWorkspace(name: string) {
-    const workspace = crypto.randomUUID();
     const user = crypto.randomUUID();
-    created.workspaces.push(workspace);
     created.users.push(user);
-    await admin.query("insert into public.workspaces(id, name) values($1,$2)", [workspace, name]);
-    // workspace_members.supabase_user_id is UNIQUE, so the borrowed member cannot
-    // join a second workspace: the workspace needs its own auth user. The insert
-    // fires public.handle_new_user(), which parks the member row in the first
-    // workspace; the row is moved to ours (cleanup deletes user and row).
+    // workspace_members.supabase_user_id is UNIQUE, so the borrowed member cannot join a
+    // second workspace: the workspace needs its own auth user, and since 0054
+    // public.handle_new_user() gives that account its own workspace. The fixture uses
+    // exactly that workspace - creating another one would leave the trigger's behind.
     await admin.query(
       `insert into auth.users(id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
        values($1,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',$2,'',now(),'{}'::jsonb,'{}'::jsonb,now(),now())`,
       [user, `probe+${user}@integration.test`],
     );
-    await admin.query("update public.workspace_members set workspace_id=$1 where supabase_user_id=$2", [workspace, user]);
-    await admin.query("insert into public.workspace_ai_limits(workspace_id, image_limit, brain_limit) values($1, 100, 200)", [workspace]);
+    const member = (await admin.query("select workspace_id from public.workspace_members where supabase_user_id = $1", [user])).rows[0] as { workspace_id: string } | undefined;
+    if (!member) throw new Error("handle_new_user() did not create a workspace for the fixture account");
+    const workspace = member.workspace_id;
+    created.workspaces.push(workspace);
+    await admin.query("update public.workspaces set name = $1 where id = $2", [name, workspace]);
+    await admin.query("insert into public.workspace_ai_limits(workspace_id, image_limit, brain_limit) values($1, 100, 200) on conflict (workspace_id) do nothing", [workspace]);
     return { workspaceId: workspace, userId: user };
   }
 

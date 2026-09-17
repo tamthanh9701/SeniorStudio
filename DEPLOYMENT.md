@@ -96,9 +96,12 @@ vercel env add NEXT_PUBLIC_SUPABASE_URL production
 
 ## How the worker is driven
 
-`pg_cron` + `pg_net` post to the `ai-worker` Edge Function every five seconds; that function
-reads `get_ai_worker_config()` (worker URL + secret) and forwards to
-`/api/internal/ai-worker`. The Vercel cron entry in `vercel.json` only records a heartbeat.
+`pg_cron` + `pg_net` post to the `ai-worker` Edge Function every five seconds, sending the
+worker secret in `x-worker-secret` (read from Vault when the job runs); that function
+compares it, then reads `get_ai_worker_config()` (worker URL + secret) and forwards to
+`/api/internal/ai-worker`, which compares the same secret in constant time. A deployment
+that changes the secret must update the Vault entry (`seniorstudio_ai_worker_secret`) and
+the `AI_WORKER_SECRET` environment variable together, or the schedule is rejected. The Vercel cron entry in `vercel.json` only records a heartbeat.
 The route claims up to three jobs per invocation and also sweeps expired inpaint masks and
 reconciles uploads kept after an unreadable persistence outcome, so those cleanups run on
 the same five-second cadence.

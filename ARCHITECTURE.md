@@ -45,6 +45,12 @@ The asset edit page keeps the mask and prompt visible while inpaint runs. It nav
 
 Every image renders through `next/image`, and the lint gate (`pnpm lint --max-warnings 0`, run by CI) fails on a raw `<img>` in JSX. Large previews carry `unoptimized` because their signed URL rotates every hour; thumbnails keep the optimizer. The one `<img>` left in the sources is in `src/lib/mcp/editor.ts`, which returns an HTML document to the MCP widget rather than JSX.
 
+## Tenancy
+
+Workspaces are the isolation boundary: every row a client can reach is scoped by `public.current_workspace_ids()`, which resolves from `workspace_members` for the caller's JWT subject. A new auth account is given a workspace of its own by `public.handle_new_user()` and never joins an existing one; signups are disabled on the project, and the MCP entry point refuses any identity that is not `OWNER_EMAIL`. Only the scheduled trigger may call the worker endpoint, and it presents the worker secret that the `ai-worker` Edge Function compares before touching the service role.
+
+Provider API keys are written by members but read only with the service role: `getProviderApiKey()` takes an explicit service client, and `provider_settings.api_key` is not selectable by `authenticated`. Jobs record their charge before they may leave `submitting`, and the lease (owner plus unexpired) is the authority for every transition after the claim.
+
 ## Identity and token verification
 
 Route handlers and server components establish the caller through `getVerifiedUser()` (`src/lib/auth/verified-user.ts`), which reads verified JWT claims. `supabase.auth.getClaims()` verifies the signature locally against the project's JWKS; while a project signs symmetrically the same call falls back to a `getUser()` round trip and returns identical claims. Only the MCP resource server still calls `getUser(token)`, because it needs `email_confirmed_at`, which the claims do not carry.
