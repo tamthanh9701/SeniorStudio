@@ -78,7 +78,10 @@ export async function getModelCatalog(catalogService: SupabaseClient, workspaceI
   const catalog = [OPENAI_MODEL];
   if (!apiKey) return catalog;
   try {
-    const pager = await new GoogleGenAI({ apiKey }).models.list({ config: { pageSize: 100, queryBase: true } });
+    // `queryBase` looked like the right way to ask for base models, but the API rejects
+    // it with 400 ("Unknown name \"queryBase\""), which silently left every Google
+    // workspace with the OpenAI-only catalog.
+    const pager = await new GoogleGenAI({ apiKey }).models.list({ config: { pageSize: 100 } });
     for await (const model of pager) {
       const entry = googleCatalogEntry(model);
       if (entry) catalog.push(entry);

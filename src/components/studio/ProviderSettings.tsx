@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Eye, EyeOff, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
+import { Check, Eye, EyeOff, KeyRound, LoaderCircle, ShieldCheck, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -10,18 +10,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-type ProviderRow = { provider: "openai" | "google"; label: string; hint: string; keyPlaceholder: string; configured: boolean; availability: "unknown" | "available" | "unavailable"; validation: "not_run" | "passed" | "failed"; updatedAt?: string | null };
+type ProviderRow = { provider: "openai" | "google"; label: string; hint: string; keyPlaceholder: string; configured: boolean; validation: "not_run" | "passed" | "failed"; models?: number; imageModels?: number; updatedAt?: string | null };
 
 const INITIAL: ProviderRow[] = [
-  { provider: "openai", label: "OpenAI", hint: "Enables GPT Image generation and masked inpaint.", keyPlaceholder: "sk-…", configured: false, availability: "unknown", validation: "not_run" },
-  { provider: "google", label: "Google AI Studio", hint: "Unlocks the dynamic Gemini image model catalog.", keyPlaceholder: "AIza…", configured: false, availability: "unknown", validation: "not_run" },
+  { provider: "openai", label: "OpenAI", hint: "Enables GPT Image generation and masked inpaint.", keyPlaceholder: "sk-…", configured: false, validation: "not_run" },
+  { provider: "google", label: "Google AI Studio", hint: "Unlocks the dynamic Gemini image model catalog.", keyPlaceholder: "AIza…", configured: false, validation: "not_run" },
 ];
 
 export default function ProviderSettings() {
   const [rows, setRows] = useState(INITIAL);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
-  const [state, setState] = useState<{ provider: string; kind: "saving" | "removing" } | null>(null);
+  const [state, setState] = useState<{ provider: string; kind: "saving" | "removing" | "checking" } | null>(null);
   const [feedback, setFeedback] = useState<{ provider: string; kind: "success" | "error"; text: string } | null>(null);
   const [loadStatus, setLoadStatus] = useState<"loading" | "ready" | "error">("loading");
   const controllerRef = useRef<AbortController | null>(null);
@@ -46,7 +46,7 @@ export default function ProviderSettings() {
       if (!mountedRef.current) return;
       setRows(INITIAL.map((row) => {
         const saved = body.providers.find((entry: { provider: string; updatedAt?: string }) => entry.provider === row.provider);
-        return saved ? { ...row, configured: true, availability: "unknown", validation: "not_run", updatedAt: saved.updatedAt } : row;
+        return saved ? { ...row, configured: true, validation: "not_run", updatedAt: saved.updatedAt } : row;
       }));
       setLoadStatus("ready");
     } catch (caught) {
@@ -70,10 +70,35 @@ export default function ProviderSettings() {
       const response = await fetch("/api/settings/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, apiKey: drafts[provider] ?? "" }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error?.message ?? "Unable to save API key.");
-      setRows((current) => current.map((row) => row.provider === provider ? { ...row, configured: true, availability: "unknown", validation: "not_run", updatedAt: new Date().toISOString() } : row));
-      setDrafts((current) => ({ ...current, [provider]: "" })); setFeedback({ provider, kind: "success", text: "API key saved. Provider validation has not run." });
-    } catch (caught) { setFeedback({ provider, kind: "error", text: caught instanceof Error ? caught.message : "Unable to save API key." }); }
-    finally { setState(null); }
+      setRows((current) => current.map((row) => row.provider === provider ? { ...row, configured: true, validation: "not_run", models: undefined, imageModels: undefined, updatedAt: new Date().toISOString() } : row));
+      setDrafts((current) => ({ ...current, [provider]: "" }));
+    } catch (caught) { setFeedback({ provider, kind: "error", text: caught instanceof Error ? caught.message : "Unable to save API key." }); setState(null); return; }
+    setState(null);
+    // A saved key is checked immediately: "validation pending" was a state nobody could
+    // leave, because no request ever ran the validation.
+    await check(provider);
+  };
+
+  const check = async (provider: "openai" | "google") => {
+    setState({ provider, kind: "checking" }); setFeedback(null);
+    try {
+      const response = await fetch("/api/settings/providers/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error?.message ?? "Unable to check this key.");
+      if (body.ok !== true) {
+        setRows((current) => current.map((row) => row.provider === provider ? { ...row, validation: "failed", models: undefined, imageModels: undefined } : row));
+        setFeedback({ provider, kind: "error", text: `${body.code ?? "PROVIDER_REJECTED"}: ${body.message ?? "The provider rejected this key."}` });
+        return false;
+      }
+      setRows((current) => current.map((row) => row.provider === provider ? { ...row, validation: "passed", models: body.models, imageModels: body.imageModels } : row));
+      const detail = provider === "google" && typeof body.imageModels === "number" ? `, ${body.imageModels} image model${body.imageModels === 1 ? "" : "s"}` : "";
+      setFeedback({ provider, kind: "success", text: `Key verified: ${body.models ?? 0} models reachable${detail}.` });
+      return true;
+    } catch (caught) {
+      setRows((current) => current.map((row) => row.provider === provider ? { ...row, validation: "failed", models: undefined, imageModels: undefined } : row));
+      setFeedback({ provider, kind: "error", text: caught instanceof Error ? caught.message : "Unable to check this key." });
+      return false;
+    } finally { setState(null); }
   };
 
   const remove = async (provider: "openai" | "google") => {
@@ -82,7 +107,7 @@ export default function ProviderSettings() {
     try {
       const response = await fetch(`/api/settings/providers?provider=${provider}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Unable to remove API key.");
-      setRows((current) => current.map((row) => row.provider === provider ? { ...row, configured: false, availability: "unknown", validation: "not_run", updatedAt: null } : row)); setFeedback({ provider, kind: "success", text: "API key removed." });
+      setRows((current) => current.map((row) => row.provider === provider ? { ...row, configured: false, validation: "not_run", models: undefined, imageModels: undefined, updatedAt: null } : row)); setFeedback({ provider, kind: "success", text: "API key removed." });
     } catch (caught) { setFeedback({ provider, kind: "error", text: caught instanceof Error ? caught.message : "Unable to remove API key." }); }
     finally { setState(null); }
   };
@@ -100,7 +125,23 @@ export default function ProviderSettings() {
           <CardTitle className="font-medium">{row.label}</CardTitle>
           <CardDescription className="mt-1 text-xs leading-5">{row.hint}</CardDescription>
         </div>
-        <Badge variant="secondary" role="status" aria-live="polite" className={row.configured ? "bg-warning/10 text-warning" : "text-muted-foreground"}>{row.configured ? "Configured · validation pending" : "Not configured"}</Badge>
+        <Badge
+          variant="secondary"
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "shrink-0",
+            row.validation === "passed" ? "bg-success/10 text-success" : row.validation === "failed" ? "bg-destructive/10 text-destructive" : row.configured ? "bg-warning/10 text-warning" : "text-muted-foreground",
+          )}
+        >
+          {!row.configured
+            ? "Not configured"
+            : row.validation === "passed"
+              ? `Configured · verified${typeof row.imageModels === "number" ? ` · ${row.imageModels} image models` : typeof row.models === "number" ? ` · ${row.models} models` : ""}`
+              : row.validation === "failed"
+                ? "Configured · check failed"
+                : "Configured · not checked"}
+        </Badge>
       </CardHeader>
       <CardContent className="space-y-2 px-4">
         <Label htmlFor={`provider-${row.provider}`} className="text-xs font-semibold tracking-wide text-muted-foreground">{`${row.label} API key`}</Label>
@@ -110,6 +151,7 @@ export default function ProviderSettings() {
             <Button type="button" variant="ghost" size="icon" className="absolute top-1/2 right-0 -translate-y-1/2" onClick={() => setReveal((current) => ({ ...current, [row.provider]: !current[row.provider] }))} aria-label={reveal[row.provider] ? "Hide API key" : "Show API key"} disabled={busy}>{reveal[row.provider] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</Button>
           </div>
           <Button type="button" onClick={() => void save(row.provider)} disabled={busy || loadStatus !== "ready" || !drafts[row.provider]?.trim()}>{state?.provider === row.provider && state.kind === "saving" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />} Save</Button>
+          <Button type="button" variant="outline" onClick={() => void check(row.provider)} disabled={busy || loadStatus !== "ready" || !row.configured}>{state?.provider === row.provider && state.kind === "checking" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />} Check</Button>
           <Button type="button" variant="destructive" onClick={() => void remove(row.provider)} disabled={busy || loadStatus !== "ready" || !row.configured}>{state?.provider === row.provider && state.kind === "removing" ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />} Remove</Button>
         </div>
         {feedback?.provider === row.provider && <p role={feedback.kind === "error" ? "alert" : "status"} className={cn("text-xs", feedback.kind === "error" ? "text-destructive" : "text-success")}>{feedback.text}</p>}

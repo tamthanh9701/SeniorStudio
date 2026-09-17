@@ -69,8 +69,45 @@ describe("studio repair component regressions", () => {
     act(() => { retry!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     gate.resolve(null);
     await flush();
-    expect(host.textContent).toContain("Configured · validation pending");
+    // Configured rows now say what is true: nothing has checked this key yet.
+    expect(host.textContent).toContain("Configured · not checked");
     expect(host.textContent).not.toContain("Unable to load provider settings");
+
+    act(() => { root.unmount(); });
+    host.remove();
+  });
+
+  it("checks a saved provider key and reports the result instead of a placeholder", async () => {
+    const seen: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(`${init?.method ?? "GET"} ${url}`);
+      if (url === "/api/settings/providers" && init?.method === "POST") return new Response(JSON.stringify({ saved: true }), { status: 201 });
+      if (url === "/api/settings/providers/validate") return new Response(JSON.stringify({ ok: true, models: 58, imageModels: 4 }), { status: 200 });
+      return new Response(JSON.stringify({ providers: [] }), { status: 200 });
+    });
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => { root.render(createElement(ProviderSettings)); });
+    await flush();
+
+    const saveButton = (row: number) => Array.from(host.querySelectorAll("button")).filter((button) => (button.textContent ?? "").includes("Save"))[row];
+    const inputs = Array.from(host.querySelectorAll("input"));
+    act(() => {
+      const input = inputs[1];
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "AIza-test-key");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { saveButton(1).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await flush();
+
+    expect(seen).toContain("POST /api/settings/providers/validate");
+    expect(host.textContent).toContain("Configured · verified · 4 image models");
+    expect(host.textContent).toContain("Key verified: 58 models reachable, 4 image models");
+    expect(host.textContent).not.toContain("validation pending");
 
     act(() => { root.unmount(); });
     host.remove();
