@@ -8,7 +8,7 @@ const client = {
 } as unknown as Record<string, unknown>;
 
 vi.mock("@/supabase/server", () => ({ createClient: async () => client, getServiceClient: () => ({}) }));
-vi.mock("@/lib/ai/models", () => ({ resolveUserWorkspaceId: async () => "ws-1" }));
+vi.mock("@/lib/ai/models", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/ai/models")>()), resolveUserWorkspaceId: async () => "ws-1" }));
 
 const apiKey = vi.fn<() => Promise<string | null>>(async () => "AIza-test-key");
 vi.mock("@/lib/ai/credentials", () => ({ getProviderApiKey: () => apiKey() }));
@@ -39,11 +39,17 @@ describe("POST /api/settings/providers/validate", () => {
     expect(await response.json()).toEqual({ ok: false, code: "PROVIDER_REJECTED", message: "API key not valid. Please pass a valid API key." });
   });
 
-  it("checks OpenAI through the model list", async () => {
+  it("checks OpenAI through the model list and names catalog models the key does not list", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ data: [{ id: "gpt-image-2" }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const response = await post({ provider: "openai" });
-    expect(await response.json()).toEqual({ ok: true, models: 1 });
+    expect(await response.json()).toEqual({ ok: true, models: 1, missingModels: ["openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"] });
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.openai.com/v1/models");
+  });
+
+  it("reports nothing missing when the key lists every catalog model", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ data: [{ id: "gpt-image-2" }, { id: "gpt-image-2.5-flare" }, { id: "gpt-image-2.5-sunburst" }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    expect(await (await post({ provider: "openai" })).json()).toEqual({ ok: true, models: 3, missingModels: [] });
   });
 
   it("refuses to check a provider without a key", async () => {

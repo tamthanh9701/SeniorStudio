@@ -35,13 +35,14 @@ export type Harness = {
    */
   usage(workspaceId?: string): Promise<{ held: number; charged: number }>;
   createStyle(name: string, options?: { references?: number; jobStatuses?: string[]; workspaceId?: string }): Promise<{ styleId: string; references: Array<{ id: string; hash: string }>; revision: string }>;
-  packet(styleId: string, revision: string, references: Array<{ id: string; hash: string }>, libraryReferenceIds?: string[]): string;
+  packet(styleId: string, revision: string, references: Array<{ id: string; hash: string }>, libraryReferenceIds?: string[], model?: string): string;
   /**
    * Rolled back unless `commit` is asked for: a committed queued job is claimable
    * by the production worker every five seconds, which would spend provider credit
-   * on a fixture.
+   * on a fixture. `guardFromClaim` writes `attempt_count = 1` inside the same
+   * transaction, so the row is never claimable by anyone but this suite.
    */
-  enqueueStyleJob(packetJson: string, styleId: string, options?: { commit?: boolean; as?: string }): Promise<{ id: string; input: Record<string, unknown>; style_generation: Record<string, unknown>; status: string }>;
+  enqueueStyleJob(packetJson: string, styleId: string, options?: { commit?: boolean; as?: string; guardFromClaim?: boolean; model?: string }): Promise<{ id: string; input: Record<string, unknown>; style_generation: Record<string, unknown>; status: string }>;
   /**
    * A throwaway workspace owned by a throwaway auth user, for quota limits that
    * must not touch the borrowed workspace. `userId` must be passed to `asMember`
@@ -148,13 +149,13 @@ export async function connectHarness(): Promise<Harness> {
     return { styleId, references, revision };
   }
 
-  function packet(styleId: string, revision: string, references: Array<{ id: string; hash: string }>, libraryReferenceIds?: string[]) {
+  function packet(styleId: string, revision: string, references: Array<{ id: string; hash: string }>, libraryReferenceIds?: string[], model = "openai/gpt-image-2") {
     return JSON.stringify({
       packet_version: 1,
       style_id: styleId,
       style_revision: revision,
       operation: "text_to_image",
-      model: "openai/gpt-image-2",
+      model,
       original_prompt: "integration",
       compiled_prompt: "integration",
       reference_snapshot: references.map((reference) => ({ id: reference.id, content_hash: reference.hash })),
@@ -170,12 +171,33 @@ export async function connectHarness(): Promise<Harness> {
   // fields are selected individually.
   const enqueueSql =
     `select j.id as id, j.input as input, j.style_generation as style_generation, j.status as status
-       from public.enqueue_style_group_job($1,$2,'text_to_image','openai/gpt-image-2',$3::jsonb,null) j`;
+       from public.enqueue_style_group_job($1,$2,'text_to_image',$4::text,$3::jsonb,null) j`;
 
-  async function enqueueStyleJob(packetJson: string, styleId: string, options: { commit?: boolean; as?: string } = {}) {
+  async function enqueueStyleJob(packetJson: string, styleId: string, options: { commit?: boolean; as?: string; guardFromClaim?: boolean; model?: string } = {}) {
+    const model = options.model ?? "openai/gpt-image-2";
+    if (options.guardFromClaim) {
+      // One transaction: an enqueue nobody else can claim. The guard switches the request
+      // claim to the service role because members have no UPDATE policy on ai_jobs.
+      await admin.query("begin");
+      try {
+        await admin.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "authenticated", sub: options.as ?? userId })]);
+        const result = await admin.query(enqueueSql, [styleId, options.as ?? userId, packetJson, model]);
+        const job = result.rows[0] as { id: string } | undefined;
+        if (job?.id) {
+          await admin.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "service_role" })]);
+          await admin.query("update public.ai_jobs set attempt_count = 1 where id = $1", [job.id]);
+          created.jobs.push(job.id);
+        }
+        await admin.query(options.commit === false ? "rollback" : "commit");
+        return result.rows[0];
+      } catch (error) {
+        await admin.query("rollback").catch(() => undefined);
+        throw error;
+      }
+    }
     const rows = await asMember<{ id: string; input: Record<string, unknown>; style_generation: Record<string, unknown>; status: string }>(
       enqueueSql,
-      [styleId, options.as ?? userId, packetJson],
+      [styleId, options.as ?? userId, packetJson, model],
       options,
     );
     if (rows[0]?.id) created.jobs.push(rows[0].id);

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { AiProviderSchema } from "@/db/ai-jobs";
 import { createClient, getServiceClient } from "@/supabase/server";
 import { getVerifiedUser } from "@/lib/auth/verified-user";
-import { resolveUserWorkspaceId } from "@/lib/ai/models";
+import { OPENAI_MODEL_IDS, resolveUserWorkspaceId } from "@/lib/ai/models";
 import { getProviderApiKey } from "@/lib/ai/credentials";
 
 const CheckSchema = z.object({ provider: AiProviderSchema }).strict();
@@ -40,9 +40,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, models: models.length, imageModels: models.filter((model) => /image/i.test(model.name ?? "")).length });
     }
     const response = await fetch(OPENAI_MODELS_URL, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    const body = (await response.json().catch(() => null)) as { data?: unknown[] } | null;
+    const body = (await response.json().catch(() => null)) as { data?: Array<{ id?: unknown }> } | null;
     if (!response.ok) return NextResponse.json({ ok: false, code: "PROVIDER_REJECTED", message: providerMessage(body, `The provider answered ${response.status}`) });
-    return NextResponse.json({ ok: true, models: Array.isArray(body?.data) ? body.data.length : 0 });
+    const listed = new Set((Array.isArray(body?.data) ? body.data : []).map((entry) => String(entry?.id ?? "")));
+    // A catalog model this key does not list cannot generate: say so here rather than let
+    // the picker offer it and the job fail later.
+    const missingModels = OPENAI_MODEL_IDS.filter((id) => !listed.has(id.replace(/^openai\//, "")));
+    return NextResponse.json({ ok: true, models: listed.size, missingModels });
   } catch (error) {
     return NextResponse.json({ ok: false, code: "PROVIDER_UNREACHABLE", message: error instanceof Error ? error.message : "The provider could not be reached" });
   }

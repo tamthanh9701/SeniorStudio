@@ -35,11 +35,30 @@ export type ModelCatalogEntry = {
   supportsTemperature?: false;
 };
 
-const OPENAI_MODEL: ModelCatalogEntry = {
-  id: "openai/gpt-image-2", label: "OpenAI GPT Image 2", provider: "openai",
-  operations: ["text_to_image", "image_to_image", "inpaint"], sizes: ["1024x1024", "1536x1024", "1024x1536", "auto"],
-  qualities: ["low", "medium", "high", "auto"], maxCount: 4, supportsReferenceImages: true, maxInputImages: 16, supportsTransparentBackground: true, supportsTemperature: false,
-};
+/**
+ * OpenAI's image models. The newer two mirror gpt-image-2's declared capabilities: the
+ * provider is the authority on what an id accepts, and an unsupported parameter comes
+ * back as a clear job failure rather than a silent downgrade.
+ */
+const OPENAI_IMAGE_MODELS: readonly ModelCatalogEntry[] = [
+  {
+    id: "openai/gpt-image-2.5-flare", label: "OpenAI GPT Image 2.5 Flare", provider: "openai",
+    operations: ["text_to_image", "image_to_image", "inpaint"], sizes: ["1024x1024", "1536x1024", "1024x1536", "auto"],
+    qualities: ["low", "medium", "high", "auto"], maxCount: 4, supportsReferenceImages: true, maxInputImages: 16, supportsTransparentBackground: true, supportsTemperature: false,
+  },
+  {
+    id: "openai/gpt-image-2.5-sunburst", label: "OpenAI GPT Image 2.5 Sunburst", provider: "openai",
+    operations: ["text_to_image", "image_to_image", "inpaint"], sizes: ["1024x1024", "1536x1024", "1024x1536", "auto"],
+    qualities: ["low", "medium", "high", "auto"], maxCount: 4, supportsReferenceImages: true, maxInputImages: 16, supportsTransparentBackground: true, supportsTemperature: false,
+  },
+  {
+    id: "openai/gpt-image-2", label: "OpenAI GPT Image 2", provider: "openai",
+    operations: ["text_to_image", "image_to_image", "inpaint"], sizes: ["1024x1024", "1536x1024", "1024x1536", "auto"],
+    qualities: ["low", "medium", "high", "auto"], maxCount: 4, supportsReferenceImages: true, maxInputImages: 16, supportsTransparentBackground: true, supportsTemperature: false,
+  },
+];
+
+export const OPENAI_MODEL_IDS: readonly string[] = OPENAI_IMAGE_MODELS.map((model) => model.id);
 
 const GOOGLE_IMAGE_MODEL_IDS: Record<string, true> = {
   "gemini-3.1-flash-image": true,
@@ -75,7 +94,7 @@ function googleCatalogEntry(model: Model): ModelCatalogEntry | null {
 
 export async function getModelCatalog(catalogService: SupabaseClient, workspaceId: string): Promise<ModelCatalogEntry[]> {
   const apiKey = await getProviderApiKey("google", { service: catalogService, workspaceId });
-  const catalog = [OPENAI_MODEL];
+  const catalog = [...OPENAI_IMAGE_MODELS];
   if (!apiKey) return catalog;
   try {
     // `queryBase` looked like the right way to ask for base models, but the API rejects
@@ -104,4 +123,4 @@ export async function assertModelSupports(modelId: SupportedModelId, operation: 
   return model;
 }
 
-export const INPAINT_MODELS: readonly ModelCatalogEntry[] = [OPENAI_MODEL];
+export const INPAINT_MODELS: readonly ModelCatalogEntry[] = OPENAI_IMAGE_MODELS;

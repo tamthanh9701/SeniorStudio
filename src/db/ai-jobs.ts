@@ -16,7 +16,9 @@ export const AI_JOB_INPUTS_TABLE = "ai_job_inputs";
 
 export const AiProviderSchema = z.enum(["openai", "google"]);
 export const AiOperationSchema = z.enum(["text_to_image", "image_to_image", "inpaint"]);
-export const SupportedModelIdSchema = z.string().regex(/^(openai\/gpt-image-2|google\/[a-z0-9._-]+)$/);
+// Shape only: the catalog decides what a workspace may pick, `public.is_supported_model`
+// decides what the enqueue RPCs accept, and the provider rejects an unknown id loudly.
+export const SupportedModelIdSchema = z.string().regex(/^(openai|google)\/[a-z0-9._-]+$/);
 export const AiJobStatusSchema = z.enum([
   "queued", "submitting", "processing", "persisting", "succeeded", "failed", "canceled",
 ]);

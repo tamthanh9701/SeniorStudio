@@ -29,6 +29,8 @@ describe("AI model catalog", () => {
 
   it("returns Google image models when a provider key is configured", async () => {
     expect((await getModelCatalog(serviceClient, "ws-test")).map((model) => model.id)).toEqual([
+      "openai/gpt-image-2.5-flare",
+      "openai/gpt-image-2.5-sunburst",
       "openai/gpt-image-2",
       "google/gemini-3.1-flash-image",
       "google/gemini-3.1-flash-lite-image",
@@ -39,7 +41,14 @@ describe("AI model catalog", () => {
 
   it("returns only OpenAI when Google is unconfigured", async () => {
     maybeSingle.mockResolvedValueOnce({ data: null });
-    expect((await getModelCatalog(serviceClient, "ws-test")).map((model) => model.id)).toEqual(["openai/gpt-image-2"]);
+    expect((await getModelCatalog(serviceClient, "ws-test")).map((model) => model.id)).toEqual([
+      "openai/gpt-image-2.5-flare",
+      "openai/gpt-image-2.5-sunburst",
+      "openai/gpt-image-2",
+    ]);
+    // The catalog is the authority for what a workspace may pick: an id nobody declared
+    // is refused before a job exists.
+    await expect(assertModelSupports("openai/gpt-image-3", "text_to_image", serviceClient, "ws-test")).rejects.toThrow("INVALID_MODEL");
   });
 
   it("rejects non-image and incompatible operation combinations", async () => {

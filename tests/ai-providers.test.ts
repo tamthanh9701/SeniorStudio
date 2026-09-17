@@ -31,7 +31,7 @@ import { openAiProvider } from "../src/lib/ai/providers/openai";
 import { googleProvider } from "../src/lib/ai/providers/google";
 import type { AiJob, AiOperation } from "../src/db/ai-jobs";
 
-function job(operation: AiOperation, provider: "openai" | "google", model: "openai/gpt-image-2" | "google/gemini-3.1-flash-image", count: 1 | 2 = 1): AiJob {
+function job(operation: AiOperation, provider: "openai" | "google", model: "openai/gpt-image-2" | "openai/gpt-image-2.5-flare" | "openai/gpt-image-2.5-sunburst" | "google/gemini-3.1-flash-image", count: 1 | 2 = 1): AiJob {
   return {
     id: crypto.randomUUID(), workspace_id: crypto.randomUUID(), project_id: crypto.randomUUID(), module: "projects", requested_by: crypto.randomUUID(),
     asset_id: null, parent_version_id: null, version_id: null, operation, provider, model,
@@ -43,6 +43,13 @@ function job(operation: AiOperation, provider: "openai" | "google", model: "open
 
 describe("provider adapters", () => {
   beforeEach(() => { generate.mockReset(); edit.mockReset(); interactionCreate.mockReset(); });
+
+  it("sends the bare provider id for the newer OpenAI models", async () => {
+    generate.mockResolvedValue({ data: [{ b64_json: Buffer.from("png-bytes").toString("base64") }] });
+    const result = await openAiProvider.submit({ client: {} as never, apiKey: "test-key", job: job("text_to_image", "openai", "openai/gpt-image-2.5-flare") });
+    expect(result.state).toBe("completed");
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2.5-flare" }));
+  });
 
   it("decodes OpenAI base64 image bytes without URL ingestion", async () => {
     generate.mockResolvedValue({ data: [{ b64_json: Buffer.from("png-bytes").toString("base64"), revised_prompt: "revised" }] });

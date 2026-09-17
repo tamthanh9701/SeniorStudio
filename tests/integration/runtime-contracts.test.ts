@@ -22,11 +22,6 @@ dbSuite("runtime contracts (database)", () => {
 
   const usage = (workspaceId: string) => harness.usage(workspaceId);
 
-  /** A queued fixture the production worker cannot claim (claim requires attempt_count = 0). */
-  const guardFromClaim = async (jobId: string) => {
-    await harness.admin.query("update public.ai_jobs set attempt_count = 1 where id = $1", [jobId]);
-  };
-
   it("the RPCs, policies and constraints the runtime calls are the ones the migrations define", { timeout: 30_000 }, async () => {
     const { admin } = harness;
     const signatures = (
@@ -65,14 +60,45 @@ dbSuite("runtime contracts (database)", () => {
     for (const state of ["reserved", "charged", "released"]) expect(checks, `reservation state ${state}`).toContain(state);
   });
 
+  it("the enqueue whitelist accepts the catalog's models and nothing else", { timeout: 30_000 }, async () => {
+    const { admin } = harness;
+    const ok = async (provider: string, model: string) => (await admin.query("select public.is_supported_model($1,$2) as ok", [provider, model])).rows[0].ok;
+    expect({
+      flare: await ok("openai", "openai/gpt-image-2.5-flare"),
+      sunburst: await ok("openai", "openai/gpt-image-2.5-sunburst"),
+      legacy: await ok("openai", "openai/gpt-image-2"),
+      google: await ok("google", "google/gemini-3.1-flash-image"),
+    }).toEqual({ flare: true, sunburst: true, legacy: true, google: true });
+    expect({
+      unknown: await ok("openai", "openai/gpt-image-3"),
+      mismatch: await ok("google", "openai/gpt-image-2"),
+      empty: await ok("openai", ""),
+    }).toEqual({ unknown: false, mismatch: false, empty: false });
+  });
+
+  it("queues a job for each newer OpenAI image model and cancels it", { timeout: 30_000 }, async () => {
+    // The whole path for an added model: the catalog offers it, the database whitelist
+    // accepts it, the enqueue RPC writes it, and the owner can still cancel the job.
+    const scope = await harness.createWorkspace("Contracts models");
+    const style = await harness.createStyle("Contracts models", { references: 1, workspaceId: scope.workspaceId });
+    for (const model of ["openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"]) {
+      const job = await harness.enqueueStyleJob(harness.packet(style.styleId, style.revision, style.references, undefined, model), style.styleId, { commit: true, as: scope.userId, guardFromClaim: true, model });
+      expect(job.status).toBe("queued");
+      const stored = (await harness.admin.query("select model, provider, attempt_count from public.ai_jobs where id = $1", [job.id])).rows[0];
+      expect(stored).toMatchObject({ model, provider: "openai", attempt_count: 1 });
+
+      const canceled = await harness.asMember<{ status: string }>("select (public.cancel_ai_job($1)).status as status", [job.id], { commit: true, as: scope.userId });
+      expect(canceled[0].status).toBe("canceled");
+    }
+  });
+
   it("a canceled job gives its held quota back", { timeout: 30_000 }, async () => {
     // A workspace of its own: test files run in parallel and the borrowed
     // workspace's usage row is shared, so only a private one is deterministic.
     const scope = await harness.createWorkspace("Contracts cancel");
     const style = await harness.createStyle("Contracts cancel", { references: 1, workspaceId: scope.workspaceId });
     const heldBefore = (await usage(scope.workspaceId)).held;
-    const job = await harness.enqueueStyleJob(harness.packet(style.styleId, style.revision, style.references), style.styleId, { commit: true, as: scope.userId });
-    await guardFromClaim(job.id);
+    const job = await harness.enqueueStyleJob(harness.packet(style.styleId, style.revision, style.references), style.styleId, { commit: true, as: scope.userId, guardFromClaim: true });
     expect((await usage(scope.workspaceId)).held).toBe(heldBefore + 1);
 
     const canceled = await harness.asMember<{ status: string }>("select (public.cancel_ai_job($1)).status as status", [job.id], { commit: true, as: scope.userId });
@@ -127,8 +153,7 @@ dbSuite("runtime contracts (database)", () => {
     const style = await harness.createStyle("Contracts cap", { workspaceId: cap.workspaceId });
     const packet = harness.packet(style.styleId, style.revision, style.references);
 
-    const job = await harness.enqueueStyleJob(packet, style.styleId, { commit: true, as: cap.userId });
-    await guardFromClaim(job.id);
+    const job = await harness.enqueueStyleJob(packet, style.styleId, { commit: true, as: cap.userId, guardFromClaim: true });
     expect((await usage(cap.workspaceId)).held).toBe(1);
 
     await expect(harness.enqueueStyleJob(packet, style.styleId, { commit: true, as: cap.userId })).rejects.toThrow(/quota_exceeded/);

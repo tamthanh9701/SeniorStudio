@@ -50,7 +50,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
     const model = await assertModelSupports(parsed.data.model, "inpaint", getServiceClient(), member.workspace_id);
     if (!(await getProviderApiKey(model.provider, { service: getServiceClient(), workspaceId: member.workspace_id }))) throw new Error("PROVIDER_NOT_CONFIGURED");
     if (asset.style_id) {
-      if (parsed.data.model !== "openai/gpt-image-2") throw new Error("UNSUPPORTED_SETTINGS");
+      // Style inpaint needs the OpenAI mask path; any OpenAI image model may run it.
+      if (model.provider !== "openai") throw new Error("UNSUPPORTED_SETTINGS");
       const { data: source } = await supabase.from("asset_versions").select("id, prompt, metadata, style_generation").eq("id", parsed.data.parentVersionId).eq("asset_id", assetId).single();
       if (!source) throw new Error("VERSION_CONFLICT");
       const packetResult = await resolveStyleGenerationPlan(supabase, { styleId: asset.style_id, operation: "inpaint", requestedModelId: parsed.data.model, sourceVersionId: parsed.data.parentVersionId, prompt: parsed.data.prompt, referenceIds: parsed.data.referenceIds, editTarget: parsed.data.editTarget, useCurrentStyle: parsed.data.useCurrentStyle, sourcePacket: source.style_generation, maskId: parsed.data.maskId, sourceAssetId: assetId, costMode: "strict_style", count: 1, size: "auto", quality: parsed.data.quality, preserveRequestedModel: true, sourceOriginalPrompt: source.prompt ?? null }, getServiceClient());

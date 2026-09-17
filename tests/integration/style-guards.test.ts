@@ -69,6 +69,7 @@ dbSuite("style guards (database)", () => {
       borrower.styleId,
       userId,
       harness.packet(borrower.styleId, borrower.revision, [...borrower.references, ...lender.references], [lender.references[0].id]),
+      "openai/gpt-image-2",
     ]);
     expect(rows[0].input.reference_ids).toEqual([borrower.references[0].id, lender.references[0].id]);
     expect(rows[0].style_generation.metadata?.library_reference_ids).toEqual([lender.references[0].id]);
@@ -96,7 +97,7 @@ dbSuite("style guards (database)", () => {
     const borrower = await harness.createStyle("Guards thief", { references: 1 });
     await admin.query("update public.styles set library_id=$1 where id=$2", [otherLibrary, borrower.styleId]);
     await expect(
-      harness.asMember(harness.enqueueSql, [borrower.styleId, harness.userId, harness.packet(borrower.styleId, borrower.revision, borrower.references, [otherRef])]),
+      harness.asMember(harness.enqueueSql, [borrower.styleId, harness.userId, harness.packet(borrower.styleId, borrower.revision, borrower.references, [otherRef]), "openai/gpt-image-2"]),
     ).rejects.toThrow(/REFERENCE_NOT_FOUND/);
   });
 
@@ -118,7 +119,7 @@ dbSuite("style guards (database)", () => {
       await second.query("begin");
       await second.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "authenticated", sub: userId })]);
       const pending = second
-        .query(harness.enqueueSql, [style.styleId, userId, harness.packet(style.styleId, style.revision, style.references)])
+        .query(harness.enqueueSql, [style.styleId, userId, harness.packet(style.styleId, style.revision, style.references), "openai/gpt-image-2"])
         .then(() => "completed", (error: Error) => `rejected: ${error.message}`);
 
       // The server reports the wait, so it is observed rather than assumed: the

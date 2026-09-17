@@ -80,7 +80,7 @@ export async function resolveImageExecutionPlan(
   service: SupabaseClient,
 ): Promise<ExecutionPlan> {
   const requested = request.requestedModelId as SupportedModelId;
-  if (!/^(openai\/gpt-image-2|google\/[a-z0-9._-]+)$/.test(request.requestedModelId)) throw new Error("INVALID_MODEL");
+  if (!/^(openai|google)\/[a-z0-9._-]+$/.test(request.requestedModelId)) throw new Error("INVALID_MODEL");
   if (request.operation === "image_to_image" && !request.sourceVersionId) throw new Error("SOURCE_REQUIRED");
 
   const user = await getVerifiedUser(client);

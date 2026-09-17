@@ -22,7 +22,7 @@ export default function ProviderSettings() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<{ provider: string; kind: "saving" | "removing" | "checking" } | null>(null);
-  const [feedback, setFeedback] = useState<{ provider: string; kind: "success" | "error"; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ provider: string; kind: "success" | "warning" | "error"; text: string } | null>(null);
   const [loadStatus, setLoadStatus] = useState<"loading" | "ready" | "error">("loading");
   const controllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
@@ -92,7 +92,14 @@ export default function ProviderSettings() {
       }
       setRows((current) => current.map((row) => row.provider === provider ? { ...row, validation: "passed", models: body.models, imageModels: body.imageModels } : row));
       const detail = provider === "google" && typeof body.imageModels === "number" ? `, ${body.imageModels} image model${body.imageModels === 1 ? "" : "s"}` : "";
-      setFeedback({ provider, kind: "success", text: `Key verified: ${body.models ?? 0} models reachable${detail}.` });
+      const missing: string[] = Array.isArray(body.missingModels) ? body.missingModels : [];
+      setFeedback({
+        provider,
+        kind: missing.length > 0 ? "warning" : "success",
+        text: missing.length > 0
+          ? `Key verified: ${body.models ?? 0} models reachable${detail}. Not listed for this key: ${missing.join(", ")}.`
+          : `Key verified: ${body.models ?? 0} models reachable${detail}.`,
+      });
       return true;
     } catch (caught) {
       setRows((current) => current.map((row) => row.provider === provider ? { ...row, validation: "failed", models: undefined, imageModels: undefined } : row));
@@ -154,7 +161,7 @@ export default function ProviderSettings() {
           <Button type="button" variant="outline" onClick={() => void check(row.provider)} disabled={busy || loadStatus !== "ready" || !row.configured}>{state?.provider === row.provider && state.kind === "checking" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />} Check</Button>
           <Button type="button" variant="destructive" onClick={() => void remove(row.provider)} disabled={busy || loadStatus !== "ready" || !row.configured}>{state?.provider === row.provider && state.kind === "removing" ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />} Remove</Button>
         </div>
-        {feedback?.provider === row.provider && <p role={feedback.kind === "error" ? "alert" : "status"} className={cn("text-xs", feedback.kind === "error" ? "text-destructive" : "text-success")}>{feedback.text}</p>}
+        {feedback?.provider === row.provider && <p role={feedback.kind === "error" ? "alert" : "status"} className={cn("text-xs", feedback.kind === "error" ? "text-destructive" : feedback.kind === "warning" ? "text-warning" : "text-success")}>{feedback.text}</p>}
       </CardContent>
     </Card>)}
     {feedback?.provider === "all" && <p role="alert" className="text-xs text-destructive">{feedback.text}</p>}
