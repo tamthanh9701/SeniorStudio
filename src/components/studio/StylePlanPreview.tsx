@@ -3,6 +3,7 @@ import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { sizeLabel } from "@/lib/ai/presentation";
 
 export function StylePlanPreview({ plan }: { plan: ExecutionPlan }) {
   const effective = plan.effectiveModelId;
@@ -10,7 +11,7 @@ export function StylePlanPreview({ plan }: { plan: ExecutionPlan }) {
   const fields: Array<{ label: string; value: string | null }> = [
     { label: "Model", value: requested === effective ? effective : `${requested} → ${effective}` },
     { label: "Provider", value: plan.provider },
-    { label: "Size", value: plan.size },
+    { label: "Size", value: sizeLabel(plan.size) },
     { label: "Quality", value: plan.quality },
     { label: "Count", value: String(plan.count) },
   ];

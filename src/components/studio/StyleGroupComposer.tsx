@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { sizeLabel } from "@/lib/ai/presentation";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import { AiJobSchema, isTerminalStatus, type AiJob } from "@/db/ai-jobs";
 import { useAiJob } from "@/lib/ai/use-ai-job";
@@ -278,7 +279,7 @@ export default function StyleGroupComposer({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(selectedModel?.sizes ?? ["1024x1024"]).map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                {(selectedModel?.sizes ?? ["1024x1024"]).map((option) => <SelectItem key={option} value={option}>{sizeLabel(option)}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

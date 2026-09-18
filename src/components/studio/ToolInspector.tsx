@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { sizeLabel } from "@/lib/ai/presentation";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import type { SupportedQuality, SupportedSize } from "@/db/ai-jobs";
 import type { GenerationSettings } from "@/components/studio/GenerationComposer";
@@ -72,7 +73,7 @@ export default function ToolInspector({ tool, setTool, models, settings, setSett
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {selected?.sizes.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+                  {selected?.sizes.map((value) => <SelectItem key={value} value={value}>{sizeLabel(value)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

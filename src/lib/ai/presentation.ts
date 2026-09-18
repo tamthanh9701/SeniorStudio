@@ -1,4 +1,4 @@
-import type { AiJobStatus } from "@/db/ai-jobs";
+import type { AiJobStatus, SupportedSize } from "@/db/ai-jobs";
 
 export const JOB_STATUS_LABELS: Record<AiJobStatus, string> = {
   queued: "Queued",
@@ -9,6 +9,22 @@ export const JOB_STATUS_LABELS: Record<AiJobStatus, string> = {
   failed: "Failed",
   canceled: "Canceled",
 };
+
+/**
+ * Sizes read as the shape a user is choosing, with the pixels they get: "1536x1024"
+ * alone says nothing about orientation. The stored value never changes - only its label.
+ */
+export const SIZE_LABELS: Record<SupportedSize, string> = {
+  "1024x1024": "1:1 square (1024×1024)",
+  "1536x1024": "3:2 landscape (1536×1024)",
+  "1024x1536": "2:3 portrait (1024×1536)",
+  auto: "Auto (model chooses)",
+};
+
+/** A label for a persisted size value; an unknown value is shown as it is. */
+export function sizeLabel(value: string): string {
+  return SIZE_LABELS[value as SupportedSize] ?? value;
+}
 
 export const JOB_ERROR_MESSAGES: Record<string, string> = {
   PROVIDER_NOT_CONFIGURED: "No AI provider is configured for this workspace. Ask an admin to add an API key.",

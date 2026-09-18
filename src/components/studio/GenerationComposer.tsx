@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { ModelCatalogEntry } from "@/lib/ai/models";
 import type { SupportedQuality, SupportedSize } from "@/db/ai-jobs";
+import { sizeLabel } from "@/lib/ai/presentation";
 
 export type GenerationSettings = { modelId: string; size: SupportedSize; quality: SupportedQuality; count: 1 | 2 | 3 | 4 };
 
@@ -46,7 +47,7 @@ export default function GenerationComposer({ prompt, setPrompt, settings, select
           </Button>
           <span className="hidden min-w-0 flex-1 sm:block">
             <Badge variant="secondary" className="w-full justify-start truncate">
-              {selectedModel ? `${settings.size} · ${settings.quality} · ${settings.count} image${settings.count > 1 ? "s" : ""}` : "Model selection required"}
+              {selectedModel ? `${sizeLabel(settings.size)} · ${settings.quality} · ${settings.count} image${settings.count > 1 ? "s" : ""}` : "Model selection required"}
             </Badge>
           </span>
           <Button size="sm" onClick={onSubmit} disabled={disabled} className="ml-auto shrink-0">

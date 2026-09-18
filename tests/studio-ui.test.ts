@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CreateProjectSchema } from "@/app/api/projects/route";
-import { AiJobStatusSchema, type AiJob } from "@/db/ai-jobs";
-import { JOB_STATUS_LABELS } from "@/lib/ai/presentation";
+import { AiJobStatusSchema, SupportedSizeSchema, type AiJob } from "@/db/ai-jobs";
+import { JOB_STATUS_LABELS, SIZE_LABELS, sizeLabel } from "@/lib/ai/presentation";
 import { mergeModuleJob } from "@/lib/ai/use-module-jobs";
 
 const job = (overrides: Partial<AiJob> = {}): AiJob => ({
@@ -39,5 +39,15 @@ describe("job presentation", () => {
   it("covers all persisted statuses with human labels", () => {
     for (const status of AiJobStatusSchema.options) expect(JOB_STATUS_LABELS[status]).toBeTruthy();
     expect(Object.keys(JOB_STATUS_LABELS)).toHaveLength(7);
+  });
+
+  it("shows a size as its ratio and its pixels, and passes an unknown value through", () => {
+    // "1536x1024" alone says nothing about orientation; the stored value is unchanged.
+    expect(sizeLabel("1024x1024")).toBe("1:1 square (1024×1024)");
+    expect(sizeLabel("1536x1024")).toBe("3:2 landscape (1536×1024)");
+    expect(sizeLabel("1024x1536")).toBe("2:3 portrait (1024×1536)");
+    expect(sizeLabel("auto")).toBe("Auto (model chooses)");
+    expect(sizeLabel("2048x2048")).toBe("2048x2048");
+    for (const size of SupportedSizeSchema.options) expect(SIZE_LABELS[size]).toBeTruthy();
   });
 });
