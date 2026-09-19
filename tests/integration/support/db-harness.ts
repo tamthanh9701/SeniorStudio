@@ -71,6 +71,9 @@ export async function connectHarness(): Promise<Harness> {
   const userId = member.supabase_user_id;
   await admin.query("insert into public.workspace_ai_limits(workspace_id, image_limit, brain_limit) values($1, 5000, 5000) on conflict (workspace_id) do nothing", [workspaceId]);
 
+  /** The moment this run started; a helper for cleanup's borrowed-workspace rule. */
+  const connectedAt = new Date().toISOString();
+
   /** Everything the fixture creates, so cleanup never touches borrowed rows. */
   const created = {
     styles: new Set<string>(),
@@ -253,6 +256,29 @@ export async function connectHarness(): Promise<Harness> {
     await admin.query(
       "select public.release_ai_reservation_internal(r.id) from public.ai_quota_reservations r where r.job_id = any($1::uuid[]) and r.state = 'reserved'",
       [created.jobs],
+    );
+    // A test that aborts (timeout, dropped connection) can leave a reservation that
+    // never reached its job, which the release above cannot see. In a throwaway
+    // workspace every reserved row is the fixture's; in the borrowed workspace only a
+    // row created during this run that never attached a job can be (the app always
+    // reserves, inserts and attaches in one transaction).
+    await admin.query(
+      `update public.ai_quota_reservations set state = 'released'
+        where state = 'reserved'
+          and (workspace_id = any($1::uuid[])
+               or (workspace_id = $2 and job_id is null and created_at >= $3))`,
+      [[...created.workspaces], workspaceId, connectedAt],
+    );
+    // held means "reserved and not yet charged or released", so it is recomputed from
+    // the reservations for the fixture scopes instead of decremented by a guess.
+    await admin.query(
+      `update public.workspace_ai_usage u
+          set held = coalesce((
+            select sum(r.units) from public.ai_quota_reservations r
+             where r.workspace_id = u.workspace_id and r.day = u.day
+               and r.route_group = u.route_group and r.state = 'reserved'), 0)
+        where u.workspace_id = any($1::uuid[])`,
+      [[workspaceId, ...created.workspaces]],
     );
     const reservations = (await admin.query("select id from public.ai_quota_reservations where job_id = any($1::uuid[])", [created.jobs])).rows.map((row) => row.id as string);
     // Order follows the foreign keys: job inputs and jobs first, then the assets
