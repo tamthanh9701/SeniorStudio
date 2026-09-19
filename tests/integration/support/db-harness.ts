@@ -82,8 +82,17 @@ export async function connectHarness(): Promise<Harness> {
     users: [] as string[],
   };
 
+  /**
+   * A test that times out leaves its transaction open, and every later statement on this
+   * connection would fail with 25P02; drop any open transaction first.
+   */
+  async function ensureIdle(): Promise<void> {
+    await admin.query("rollback").catch(() => undefined);
+  }
+
   /** Runs one statement under a request claim; commits only when asked to. */
   async function asRole<T>(role: string, sub: string | null, sql: string, params: unknown[], options: { commit?: boolean } = {}): Promise<T[]> {
+    await ensureIdle();
     await admin.query("begin");
     await admin.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(sub ? { role, sub } : { role })]);
     try {
@@ -113,6 +122,7 @@ export async function connectHarness(): Promise<Harness> {
   };
 
   async function createStyle(name: string, options: { references?: number; jobStatuses?: string[]; workspaceId?: string } = {}) {
+    await ensureIdle();
     const owner = options.workspaceId ?? workspaceId;
     const styleId = crypto.randomUUID();
     created.styles.add(styleId);
