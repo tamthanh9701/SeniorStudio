@@ -8,8 +8,13 @@ import { getStyleSetupState } from "@/lib/style/confirmed-definition";
 import { getSignedUrls } from "@/lib/assets/service";
 import { getVerifiedUser } from "@/lib/auth/verified-user";
 
+// The two style domains share this surface; a caller that omits the domain
+// gets the visual list, which is what every pre-existing client expects.
+const StyleDomainSchema = z.enum(["visual", "game_ui"]);
+
 const GetStylesSchema = z.object({
   libraryId: z.string().uuid().optional(),
+  domain: StyleDomainSchema.default("visual"),
 });
 
 function flagDisabled() {
@@ -74,10 +79,14 @@ async function loadStyleCovers(supabase: Awaited<ReturnType<typeof createClient>
   const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const params = GetStylesSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
-  const libraryId = params.success ? params.data.libraryId : undefined;
+  if (!params.success) {
+    return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Expected libraryId as a UUID and domain as visual or game_ui" } }, { status: 400 });
+  }
+  const { libraryId, domain } = params.data;
   const query = supabase
     .from("styles")
-    .select("id, name, status, created_at, updated_at, library_id, operability, analysis_meta, confirmed_definition, style_references(id, retired_at)")
+    .select("id, name, status, created_at, updated_at, library_id, domain, operability, analysis_meta, confirmed_definition, style_references(id, retired_at)")
+    .eq("domain", domain)
     .order("updated_at", { ascending: false });
   if (libraryId) query.eq("library_id", libraryId);
   const { data, error } = await query;
@@ -89,6 +98,7 @@ async function loadStyleCovers(supabase: Awaited<ReturnType<typeof createClient>
       id: row.id,
       name: row.name,
       status: row.status,
+      domain: row.domain,
       referenceCount: liveReferences.length,
       imageCount: counts.get(row.id as string) ?? 0,
       thumbnailUrl: signed.get(row.id as string) ?? null,
@@ -106,6 +116,7 @@ async function loadStyleCovers(supabase: Awaited<ReturnType<typeof createClient>
 const CreateStyleSchema = z.object({
   name: z.string().trim().min(1).max(100),
   libraryId: z.string().uuid().nullable().optional(),
+  domain: StyleDomainSchema.default("visual"),
 });
  export async function POST(request: Request) {
   if (!styleProfilesEnabled()) return flagDisabled();
@@ -113,13 +124,13 @@ const CreateStyleSchema = z.object({
   const user = await getVerifiedUser(supabase);
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const parsed = CreateStyleSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Name must be 1-100 characters" } }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Name must be 1-100 characters and domain visual or game_ui" } }, { status: 400 });
   const { data: member } = await supabase.from("workspace_members").select("workspace_id").eq("supabase_user_id", user.id).single();
   if (!member) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Workspace not found" } }, { status: 404 });
   const { data: style, error } = await supabase
     .from("styles")
-    .insert({ workspace_id: member.workspace_id, name: parsed.data.name, library_id: parsed.data.libraryId ?? null })
-    .select("id, name, status, created_at, updated_at, library_id")
+    .insert({ workspace_id: member.workspace_id, name: parsed.data.name, library_id: parsed.data.libraryId ?? null, domain: parsed.data.domain })
+    .select("id, name, status, created_at, updated_at, library_id, domain")
     .single();
   if (error) return NextResponse.json({ error: { code: "CREATE_FAILED", message: error.message } }, { status: 500 });
   return NextResponse.json({ style: { ...style, referenceCount: 0, libraryId: style.library_id, setupState: "references" } }, { status: 201 });

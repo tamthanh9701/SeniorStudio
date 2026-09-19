@@ -35,17 +35,25 @@ Return ONLY strict JSON:
 Only generate changes with category="schema". Do not generate changes for content or provider issues.
 Each change must reference at least one issue by id.`;
 
+/** Game UI styles carry a different schema and module; the visual routes only serve visual ones. */
+function rejectGameUiDomain(domain: unknown) {
+  if (domain !== "game_ui") return null;
+  return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Use the Game UI module for this style" } }, { status: 400 });
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
-  const quota = await enforceAiQuota(request, "brain");
-  if (!quota.ok) return quota.response;
   const { styleId } = await params;
   const supabase = await createClient();
+  const { data: style } = await supabase.from("styles").select("id, domain, schema, fingerprint, workspace_id, updated_at").eq("id", styleId).single();
+  if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+  // Game UI styles carry their own schema; the generic tuner reads PromptSchema fields.
+  const domainRejection = rejectGameUiDomain(style.domain);
+  if (domainRejection) return domainRejection;
+  const quota = await enforceAiQuota(request, "brain");
+  if (!quota.ok) return quota.response;
   const parsed = TuneSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });
-
-  const { data: style } = await supabase.from("styles").select("id, schema, fingerprint, workspace_id, updated_at").eq("id", styleId).single();
-  if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
 
   const versionIds = parsed.data.generatedVersionIds;
   const { data: versions, error: versionsError } = await supabase

@@ -6,6 +6,7 @@ import { STORAGE_BUCKET } from "@/db/schema";
 import { getEnv } from "@/env";
 import { getServiceClient } from "@/supabase/server";
 import { LEASE_SECONDS, processAiJob, type WorkerOutcome } from "@/lib/ai/worker";
+import { ownedStorageObjectFromPath, removeOwnedObjects } from "@/lib/assets/ownership";
 import { secureEquals } from "@/lib/security/secure-compare";
 
 const MASK_SWEEP_LIMIT = 100;
@@ -77,6 +78,43 @@ async function reconcilePendingUploads(client: ReturnType<typeof getServiceClien
   return { kept, removed, failed };
 }
 
+/**
+ * Wireframes, foreground mattes and extracted elements are uploaded before their
+ * rows commit, so an interrupted request leaves a bookkeeping row naming the
+ * object.  A row whose outcome is now committed only needs forgetting; anything
+ * else is an object no row references.
+ */
+async function sweepGameUiUploads(client: ReturnType<typeof getServiceClient>): Promise<{ forgotten: number; removed: number; failed: number }> {
+  const { data, error } = await client.rpc("claim_expired_game_ui_uploads", { p_limit: 20 });
+  if (error) {
+    console.error(`game ui upload sweep failed: ${error.message}`);
+    return { forgotten: 0, removed: 0, failed: 0 };
+  }
+  const rows = (data ?? []) as Array<{ id: string; storage_path: string; committed: boolean }>;
+  let forgotten = 0;
+  let removed = 0;
+  let failed = 0;
+  for (const row of rows) {
+    if (!row.committed) {
+      // The path is our own, but it is still re-validated before the service role
+      // is asked to remove anything.
+      try {
+        await removeOwnedObjects(client, [ownedStorageObjectFromPath(row.storage_path)]);
+        removed += 1;
+      } catch (error) {
+        failed += 1;
+        console.error(`game ui upload removal failed ${row.storage_path}: ${error instanceof Error ? error.message : "unknown"}`);
+        continue;
+      }
+    } else {
+      forgotten += 1;
+    }
+    const { error: finishError } = await client.rpc("finish_game_ui_upload", { p_upload_id: row.id });
+    if (finishError) console.error(`game ui upload marker clear failed ${row.id}: ${finishError.message}`);
+  }
+  return { forgotten, removed, failed };
+}
+
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
@@ -108,13 +146,15 @@ export async function POST(request: Request) {
   }
   const masks = await sweepExpiredMasks(client);
   const uploads = await reconcilePendingUploads(client);
+  const gameUiUploads = await sweepGameUiUploads(client);
   console.log(
     `ai_worker_invocation claimed=${jobs?.length ?? 0} expired=${expired?.length ?? 0} ` +
       `masks_removed=${masks.removed} masks_storage_failed=${masks.storageFailed} ` +
-      `uploads_kept=${uploads.kept} uploads_removed=${uploads.removed} uploads_failed=${uploads.failed} elapsed_ms=${Date.now() - startedAt}`,
+      `uploads_kept=${uploads.kept} uploads_removed=${uploads.removed} uploads_failed=${uploads.failed} ` +
+      `game_ui_removed=${gameUiUploads.removed} game_ui_forgotten=${gameUiUploads.forgotten} game_ui_failed=${gameUiUploads.failed} elapsed_ms=${Date.now() - startedAt}`,
   );
   if (hasRejection) {
     return NextResponse.json({ error: "One or more jobs failed" }, { status: 500 });
   }
-  return NextResponse.json({ expired: expired?.length ?? 0, claimed: jobs?.length ?? 0, masks, uploads, ...counts });
+  return NextResponse.json({ expired: expired?.length ?? 0, claimed: jobs?.length ?? 0, masks, uploads, gameUiUploads, ...counts });
 }

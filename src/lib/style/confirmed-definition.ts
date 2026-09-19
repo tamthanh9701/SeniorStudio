@@ -26,8 +26,54 @@ export const ConfirmedStyleDefinitionSchema = z
   })
   .strict();
 
+/**
+ * A Game UI style confirms as definition version 2 and names its domain, so a
+ * version 1 definition can never be read as a Game UI style and vice versa.
+ * The visual schema lives in the other module because it is the other module's
+ * contract; importing it here would make the generic style code depend on UI
+ * taxonomy.
+ */
+export const ConfirmedGameUiDefinitionSchema = z
+  .object({
+    definition_version: z.literal(2),
+    domain: z.literal("game_ui"),
+    style_revision: z.string().uuid(),
+    schema_snapshot: z.record(z.string(), z.unknown()),
+    reference_snapshot: z.array(ConfirmedReferenceSchema).min(1).max(MAX_STYLE_REFERENCES),
+    confirmed_at: z.string().min(1),
+  })
+  .strict();
+
 export type ConfirmedStyleDefinition = z.infer<typeof ConfirmedStyleDefinitionSchema>;
+export type ConfirmedGameUiDefinition = z.infer<typeof ConfirmedGameUiDefinitionSchema>;
 export type ConfirmedReference = z.infer<typeof ConfirmedReferenceSchema>;
+
+/** Which domain a stored definition belongs to; null when there is none. */
+export function confirmedDefinitionDomain(value: unknown): "visual" | "game_ui" | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object") throw new Error("STYLE_DEFINITION_INVALID");
+  const record = value as Record<string, unknown>;
+  const version = record.definition_version;
+  if (version === 1) return "visual";
+  if (version === 2) {
+    if (record.domain !== "game_ui") throw new Error("STYLE_DEFINITION_INVALID");
+    return "game_ui";
+  }
+  throw new Error("STYLE_DEFINITION_INVALID");
+}
+
+/**
+ * Parse a Game UI confirmed definition.  Like the visual parser, a definition
+ * that is present but malformed fails loudly instead of reading as absent.
+ */
+export function parseGameUiConfirmedDefinition(value: unknown): ConfirmedGameUiDefinition | null {
+  if (value === null || value === undefined) return null;
+  const parsed = ConfirmedGameUiDefinitionSchema.safeParse(value);
+  if (!parsed.success) throw new Error("STYLE_DEFINITION_INVALID");
+  const ids = new Set(parsed.data.reference_snapshot.map((reference) => reference.id));
+  if (ids.size !== parsed.data.reference_snapshot.length) throw new Error("STYLE_DEFINITION_INVALID");
+  return parsed.data;
+}
 
 /**
  * Parse a `styles.confirmed_definition` value.  A definition that is present
@@ -59,7 +105,13 @@ export function getStyleSetupState(
   if (!style) return "references";
   let confirmed = false;
   try {
-    confirmed = parseConfirmedDefinition(style.confirmed_definition ?? null) !== null;
+    // A Game UI style confirms as definition version 2, which the visual parser
+    // rejects; asking the domain first keeps a confirmed Game UI style "ready"
+    // instead of silently reporting it as still under review.
+    confirmed =
+      confirmedDefinitionDomain(style.confirmed_definition ?? null) === "game_ui"
+        ? parseGameUiConfirmedDefinition(style.confirmed_definition ?? null) !== null
+        : parseConfirmedDefinition(style.confirmed_definition ?? null) !== null;
   } catch {
     confirmed = false;
   }

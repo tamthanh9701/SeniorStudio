@@ -7,6 +7,17 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 if (!supabaseUrl) {
   throw new Error("NEXT_PUBLIC_SUPABASE_URL must be set for next/image remotePatterns");
 }
+// The scheme is read from the URL rather than assumed: a project reached over
+// plain http (a local stack) must not be forced into an https connect-src, and a
+// websocket upgrade follows the same scheme.
+const supabase = new URL(supabaseUrl);
+const supabaseSocketOrigin = `${supabase.protocol === "https:" ? "wss" : "ws"}://${supabase.host}`;
+// A project reached over a private address (a local stack) is the only case where
+// the image optimizer would refuse to fetch its signed URLs as an SSRF risk. The
+// escape hatch is enabled for that host alone, so a hosted deployment keeps the
+// default protection.
+const supabaseIsPrivate =
+  /^(127\.0\.0\.1|localhost|::1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(supabase.hostname);
 
 /** Headers every response carries; the CSP is production-only so `next dev` keeps working. */
 const securityHeaders = [
@@ -23,7 +34,8 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      `connect-src 'self' https://${new URL(supabaseUrl).hostname} wss://${new URL(supabaseUrl).hostname} https://jultee.jp.auth0.com https://vitals.vercel-insights.com`,
+      // Only the configured Supabase origin, at whatever scheme it is served on.
+      `connect-src 'self' ${supabase.origin} ${supabaseSocketOrigin} https://jultee.jp.auth0.com https://vitals.vercel-insights.com`,
       "frame-ancestors 'none'",
       "object-src 'none'",
       "base-uri 'self'",
@@ -44,10 +56,12 @@ const nextConfig = {
     ];
   },
   images: {
+    ...(supabaseIsPrivate ? { dangerouslyAllowLocalIP: true } : {}),
     remotePatterns: [
       {
-        protocol: "https",
-        hostname: new URL(supabaseUrl).hostname,
+        protocol: supabase.protocol === "https:" ? "https" : "http",
+        hostname: supabase.hostname,
+        port: supabase.port,
         pathname: "/storage/v1/object/sign/**",
       },
     ],

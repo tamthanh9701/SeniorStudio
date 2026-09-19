@@ -5,6 +5,7 @@
 // another, and a route that read `error instanceof Error` mapped every PostgREST
 // refusal (which is a plain object) to the fallback.
 import { StyleError } from "@/lib/style/errors";
+import { GameUiError } from "@/lib/game-ui/errors";
 
 export type ApiError = { status: number; code: string; message: string };
 
@@ -42,6 +43,28 @@ const STATUS_BY_CODE: Record<string, number> = {
   quota_exceeded: 429,
   QUOTA_UNAVAILABLE: 503,
   PROVIDER_NOT_CONFIGURED: 503,
+  // Game UI: RPCs raise these as plain PostgREST errors, so the mapping has to
+  // know them too, not only the thrown GameUiError.
+  SCREEN_NOT_FOUND: 404,
+  RENDER_NOT_FOUND: 404,
+  ELEMENT_NOT_FOUND: 404,
+  INPUT_NOT_FOUND: 404,
+  OUTPUT_NOT_FOUND: 404,
+  SCREEN_VERSION_CONFLICT: 409,
+  ASSET_PACK_NOT_READY: 409,
+  SOURCE_IN_USE: 409,
+  CONFLICT: 409,
+  STYLE_DOMAIN_IMMUTABLE: 409,
+  INVALID_CONFIRMED_DEFINITION: 400,
+  INVALID_PACKET: 400,
+  DOCUMENT_TOO_LARGE: 413,
+  TOO_MANY_ELEMENTS: 400,
+  TRANSPARENCY_REQUIRED: 422,
+  BACKGROUND_NOT_REMOVED: 422,
+  GAME_UI_NOT_READY: 409,
+  GAME_UI_ANALYSIS_INVALID: 502,
+  GAME_UI_ANALYSIS_FAILED: 502,
+  GAME_UI_ANALYSIS_NOT_CONFIGURED: 503,
 };
 
 /** Codes that are reported under a different API code than the one thrown. */
@@ -55,8 +78,10 @@ const KNOWN_CODES = Object.keys(STATUS_BY_CODE).sort((a, b) => b.length - a.leng
  * @param fallbackStatus status used alongside it (the plan route answers 400)
  */
 export function apiErrorFrom(error: unknown, options: { fallbackCode?: string; fallbackStatus?: number } = {}): ApiError {
-  // Style-domain failures carry their own code and status.
+  // Style-domain failures carry their own code and status.  Game UI failures do
+  // the same, and their codes are not interchangeable with the visual ones.
   if (error instanceof StyleError) return { status: error.status, code: error.code, message: error.message };
+  if (error instanceof GameUiError) return { status: error.status, code: error.code, message: error.message };
 
   const message = errorMessage(error, options.fallbackCode ?? "INVALID_REQUEST");
   const matched = KNOWN_CODES.find((code) => message.includes(code));

@@ -2,18 +2,19 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ImageIcon, Mail, Settings, Sparkles, SwatchBook } from "lucide-react";
+import { ImageIcon, LayoutPanelTop, Mail, Settings, Sparkles, SwatchBook } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import type { ProjectJobFeedItem } from "@/db/ai-jobs";
 import { JOB_STATUS_LABELS } from "@/lib/ai/presentation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export type ModuleId = "playground" | "style";
+export type ModuleId = "playground" | "style" | "game_ui";
 
 const MODULES: Array<{ id: ModuleId; label: string; href: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "playground", label: "Image Playground", href: "/projects", icon: ImageIcon },
   { id: "style", label: "Style", href: "/style", icon: SwatchBook },
+  { id: "game_ui", label: "Game UI Style", href: "/game-ui", icon: LayoutPanelTop },
 ];
 
 export function ModuleLinks({ active, className }: { active: ModuleId; className?: string }) {
@@ -47,6 +48,9 @@ export function ModuleLinks({ active, className }: { active: ModuleId; className
 function hrefForJob(job: ProjectJobFeedItem["job"]) {
   if (job.asset_id && job.project_id) return `/projects/${job.project_id}/assets/${job.asset_id}`;
   if (job.project_id) return `/projects/${job.project_id}`;
+  // A Game UI job belongs to the module that owns its style; routing it through
+  // /style would only bounce off the visual workspace's redirect.
+  if (job.input.game_ui && job.input.style_id) return `/game-ui/${job.input.style_id}`;
   if (job.input.style_id) return `/style/${job.input.style_id}`;
   return "/style";
 }

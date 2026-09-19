@@ -16,21 +16,29 @@ import type { PromptSchema } from "@/lib/style/prompt-schema";
 
 const ValidateSchema = z.object({ answers: z.unknown() }).strict();
 
+/** Game UI styles carry a different schema and module; the visual routes only serve visual ones. */
+function rejectGameUiDomain(domain: unknown) {
+  if (domain !== "game_ui") return null;
+  return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Use the Game UI module for this style" } }, { status: 400 });
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
-  const quota = await enforceAiQuota(request, "brain");
-  if (!quota.ok) return quota.response;
   const { styleId } = await params;
   const supabase = await createClient();
-  const parsed = ValidateSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });
-
   const { data: style } = await supabase
     .from("styles")
-    .select("schema, clarification_questions, invariant_contract, updated_at")
+    .select("domain, schema, clarification_questions, invariant_contract, updated_at")
     .eq("id", styleId)
     .maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+  // Game UI styles carry their own schema; clarification patches PromptSchema fields.
+  const domainRejection = rejectGameUiDomain(style.domain);
+  if (domainRejection) return domainRejection;
+  const quota = await enforceAiQuota(request, "brain");
+  if (!quota.ok) return quota.response;
+  const parsed = ValidateSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });
 
   const questions = style.clarification_questions as StyleClarificationQuestionSet | null;
   if (!questions) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Style has no clarification questions" } }, { status: 400 });

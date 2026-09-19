@@ -52,6 +52,19 @@ export const AiJobInputSchema = z.object({
   edit_target: z.string().nullable().optional(),
   /** Set when the provider must return the subject on a transparent background. */
   background: z.literal("transparent").nullable().optional(),
+  /**
+   * Set for Game UI jobs, written by the enqueue RPC from the version 2 packet:
+   * enough routing data for a feed entry without carrying the whole packet.
+   */
+  game_ui: z
+    .object({
+      intent: z.enum(["screen", "element_reconstruction"]),
+      screen_id: z.string().uuid(),
+      render_id: z.string().uuid().optional(),
+      element_set_id: z.string().uuid().optional(),
+      element_id: z.string().uuid().optional(),
+    })
+    .optional(),
 });
 
 export const AiJobModuleSchema = z.enum(["projects", "style"]);

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiJobSchema, type AiJob } from "@/db/ai-jobs";
@@ -11,6 +12,7 @@ import { getProviderApiKey } from "@/lib/ai/credentials";
 import type { ProviderImage, ProviderSubmission } from "@/lib/ai/providers/types";
 import { ProviderError } from "@/lib/ai/providers/types";
 import { STORAGE_BUCKET } from "@/db/schema";
+import { GameUiGenerationPacketSchema } from "@/lib/game-ui/generation-packet";
 import { getOwnedAssetVersion, getOwnedJobMask, getOwnedJobReference, downloadOwnedBytes, removeOwnedObjects, ownedStorageObjectFromPath } from "@/lib/assets/ownership";
 /** Lease duration; the provider budget below must stay under it. */
 export const LEASE_SECONDS = 180;
@@ -176,6 +178,7 @@ async function persistJobImages(
     throw new ProviderError("INVALID_REQUEST", "Edit job is missing its source image or mask");
   }
   try {
+    const gameUiPacket = job.module === "style" ? GameUiGenerationPacketSchema.safeParse(job.style_generation) : ({ success: false } as const);
     for (const image of images) {
       const providerOutput = await providerBytes(image);
       // An edit must not alter anything outside the painted region.  Providers
@@ -183,6 +186,20 @@ async function persistJobImages(
       const bytes = isCandidateEdit
         ? await compositeInpaintResult(prepared.sourceBytes!, providerOutput, prepared.maskBytes!)
         : providerOutput;
+      // A Game UI result is stored with the hash of its final bytes, and a
+      // reconstructed element must actually be transparent: an opaque PNG would
+      // carry the screen around the element into the asset pack.
+      let contentHash: string | null = null;
+      let alphaStatus: "transparent" | "opaque" | null = null;
+      if (gameUiPacket.success) {
+        contentHash = sha256Hex(bytes);
+        const stats = await sharp(bytes, { failOn: "error" }).ensureAlpha().stats();
+        const alpha = stats.channels[3];
+        alphaStatus = alpha && alpha.min < 255 && alpha.max > 0 ? "transparent" : "opaque";
+        if (gameUiPacket.data.intent === "element_reconstruction" && alphaStatus !== "transparent") {
+          throw new ProviderError("TRANSPARENCY_REQUIRED", "The provider returned an element without transparency");
+        }
+      }
       const decoded = await prepareImageBytes(bytes);
       if (decoded.bytes.byteLength > MAX_BYTES || decoded.width * decoded.height > MAX_PIXELS) throw new ProviderError("FILE_TOO_LARGE", "Provider result exceeds image limits");
       const isStyleJob = job.module === "style";
@@ -195,7 +212,7 @@ async function persistJobImages(
       const { error: uploadError } = await client.storage.from(STORAGE_BUCKET).upload(storagePath, decoded.bytes, { contentType: decoded.mimeType, upsert: false });
       if (uploadError) throw uploadError;
       uploadedPaths.push(storagePath);
-      results.push({ asset_id: assetId, version_id: versionId, storage_path: storagePath, mime_type: decoded.mimeType, width: decoded.width, height: decoded.height, byte_size: decoded.bytes.byteLength, name: assetNameFor(job, ownerName, new Date()), prompt: job.input.prompt, provider_response_id: submission.requestId, metadata: { provider: job.provider, model: job.model, operation: job.operation, original_prompt: job.input.original_prompt ?? job.input.prompt, ...submission.metadata } });
+      results.push({ asset_id: assetId, version_id: versionId, storage_path: storagePath, mime_type: decoded.mimeType, width: decoded.width, height: decoded.height, byte_size: decoded.bytes.byteLength, name: assetNameFor(job, ownerName, new Date()), prompt: job.input.prompt, provider_response_id: submission.requestId, metadata: { provider: job.provider, model: job.model, operation: job.operation, original_prompt: job.input.original_prompt ?? job.input.prompt, ...submission.metadata, ...(contentHash ? { content_hash: contentHash } : {}), ...(alphaStatus ? { alpha_status: alphaStatus } : {}) } });
     }
     const { error } = await client.rpc("complete_ai_job_with_results", { p_job_id: job.id, p_worker_id: workerId, p_provider_request_id: submission.requestId, p_provider_status: providerStatus, p_results: results, p_output: { provider: job.provider, model: job.model, provider_request_id: submission.requestId, operation: job.operation, results, ...submission.metadata } });
     if (error) {
@@ -281,6 +298,42 @@ function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/**
+ * A Game UI job records the hash of the bytes it was planned from, and a
+ * reconstruction is performed on the element's own crop: the provider must never
+ * see the whole screen when the job is about one button.
+ */
+async function prepareGameUiSource(
+  job: AiJob,
+  sourceBytes: Uint8Array,
+  inputImages: InputImage[],
+): Promise<Uint8Array> {
+  const packet = GameUiGenerationPacketSchema.safeParse(job.style_generation);
+  if (!packet.success) return sourceBytes;
+  const expected = packet.data.context.source_content_hash;
+  if (!expected || sha256Hex(sourceBytes) !== expected) {
+    throw new ProviderError("SOURCE_CONTENT_CHANGED", "The source image no longer matches the plan this job was created from");
+  }
+  if (packet.data.intent !== "element_reconstruction") return sourceBytes;
+  const bounds = packet.data.context.element_snapshot.bounds;
+  const metadata = await sharp(sourceBytes, { failOn: "error" }).metadata();
+  const width = metadata.autoOrient?.width ?? metadata.width ?? 0;
+  const height = metadata.autoOrient?.height ?? metadata.height ?? 0;
+  if (bounds.x + bounds.width > width || bounds.y + bounds.height > height) {
+    throw new ProviderError("VERSION_CONFLICT", "The element box is outside the source image");
+  }
+  const cropped = await sharp(sourceBytes, { failOn: "error" })
+    .rotate()
+    .extract({ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height })
+    .png()
+    .toBuffer();
+  const source = inputImages.find((image) => image.role === "source");
+  if (source) {
+    inputImages[inputImages.indexOf(source)] = { ...source, bytes: cropped, mimeType: "image/png" };
+  }
+  return cropped;
+}
+
 async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<PreparedInputs> {
   const inputImages: InputImage[] = [];
   let maskBytes: Uint8Array | undefined;
@@ -294,6 +347,7 @@ async function prepareInputImages(client: SupabaseClient, job: AiJob): Promise<P
     const downloaded = await downloadOwnedBytes(client, owned.owned);
     sourceBytes = downloaded.bytes;
     inputImages.push({ role: "source", id: sourceVersionId, ...downloaded });
+    if (job.module === "style") sourceBytes = await prepareGameUiSource(job, sourceBytes, inputImages);
   }
   const referenceIds = job.input.reference_ids ?? [];
   const expectedHashes = referenceIds.length > 0 ? expectedReferenceHashes(job) : null;

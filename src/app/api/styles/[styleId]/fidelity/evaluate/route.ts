@@ -16,17 +16,26 @@ const EvaluateSchema = z.object({
 
 const EVALUATE_FIDELITY_SYSTEM = `You are a senior visual QA director. Judge generated images against reference images and the style profile. Evaluate style separately from subject. Return ONLY strict JSON: {"style_fidelity_score":0,"content_match_score":0,"verdict":"ready|needs_tuning|not_ready","summary":"string","strengths":["string"],"drift":[{"aspect":"lighting|color|material|composition|linework|mood|other","severity":"minor|moderate|major","detail":"string"}],"recommendation":"string"}. Scores must be 0-100.`;
 
+/** Game UI styles carry a different schema and module; the visual routes only serve visual ones. */
+function rejectGameUiDomain(domain: unknown) {
+  if (domain !== "game_ui") return null;
+  return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Use the Game UI module for this style" } }, { status: 400 });
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
-  const quota = await enforceAiQuota(request, "brain");
-  if (!quota.ok) return quota.response;
   const { styleId } = await params;
   const supabase = await createClient();
+  const { data: style } = await supabase.from("styles").select("domain, schema, workspace_id").eq("id", styleId).maybeSingle();
+  if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+  // Game UI styles carry their own schema; the generic fidelity prompt sends PromptSchema JSON.
+  const domainRejection = rejectGameUiDomain(style.domain);
+  if (domainRejection) return domainRejection;
+  const quota = await enforceAiQuota(request, "brain");
+  if (!quota.ok) return quota.response;
   const parsed = EvaluateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: parsed.error.message } }, { status: 400 });
 
-  const { data: style } = await supabase.from("styles").select("schema, workspace_id").eq("id", styleId).maybeSingle();
-  if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
   const { data: references } = await supabase.from("style_references").select("storage_path").eq("style_id", styleId).is("retired_at", null).order("created_at");
   const referencePaths = (references ?? []).slice(0, 4).map((reference) => reference.storage_path);
   const signedReferences = await getSignedUrls(supabase, referencePaths);

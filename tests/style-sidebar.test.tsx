@@ -55,6 +55,19 @@ describe("module sidebar", () => {
     expect(currentIndex).toBeLessThan(styleIndex);
   });
 
+  it("lists the Game UI Style module after Style and highlights it when active", () => {
+    const html = renderToStaticMarkup(<ProjectSidebar activeModule="game_ui" userEmail="user@example.com" />);
+    expect(html).toContain("Game UI Style");
+    const styleIndex = html.indexOf('href="/style"');
+    const gameUiIndex = html.indexOf('href="/game-ui"');
+    expect(styleIndex).toBeGreaterThan(-1);
+    expect(gameUiIndex).toBeGreaterThan(styleIndex);
+    // The highlight must belong to the Game UI anchor itself, not to an earlier link.
+    const anchor = html.slice(html.lastIndexOf("<a ", gameUiIndex), html.indexOf("</a>", gameUiIndex));
+    expect(anchor).toContain('href="/game-ui"');
+    expect(anchor).toContain('aria-current="page"');
+  });
+
   it("routes a prompt to the image it produced, falling back to where it ran", () => {
     const html = renderToStaticMarkup(
       <RecentPrompts

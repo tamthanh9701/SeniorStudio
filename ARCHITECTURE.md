@@ -45,6 +45,14 @@ The asset edit page keeps the mask and prompt visible while inpaint runs. It nav
 
 Every image renders through `next/image`, and the lint gate (`pnpm lint --max-warnings 0`, run by CI) fails on a raw `<img>` in JSX. Large previews carry `unoptimized` because their signed URL rotates every hour; thumbnails keep the optimizer. The one `<img>` left in the sources is in `src/lib/mcp/editor.ts`, which returns an HTML document to the MCP widget rather than JSX.
 
+## Game UI Style module
+
+`styles.domain` separates two style contracts: `visual` (the scene-subject `PromptSchema`) and `game_ui` (a UI language of palette, typography, layout, shape, surface and per-component chrome). The domain is immutable, is chosen at creation, and decides which schema parser, confirmation shape and generation packet apply; a version 1 packet can never reach a Game UI style and vice versa.
+
+Game UI generation uses packet version 2, whose authority is the confirmed Game UI definition for a screen and the render's own stored packet for an element reconstruction. Screen drafts, generated renders, element-map revisions (`game_ui_screens`, `game_ui_renders`, `game_ui_element_sets`) and element outputs are append-only: a render pins the draft revision and style revision it was generated from, an element map revision is written by compare-and-swap, and an output records whether its pixels were extracted deterministically or reconstructed by a provider. Wireframes and foreground mattes are style-owned inputs registered before their bytes are uploaded, with a pending-upload row that the sweeper reconciles.
+
+Exact extraction is deterministic: `extractElement` crops the box and multiplies the source alpha by the matte alpha, with no resize, trim or model in the path. Reconstruction is a normal image job whose source is the cropped element; the worker verifies the recorded source hash, and an opaque result fails with `TRANSPARENCY_REQUIRED` instead of becoming an asset. Element packs are assembled in the browser from server-validated, signed files plus a manifest that records provenance per asset.
+
 ## Tenancy
 
 Workspaces are the isolation boundary: every row a client can reach is scoped by `public.current_workspace_ids()`, which resolves from `workspace_members` for the caller's JWT subject. A new auth account is given a workspace of its own by `public.handle_new_user()` and never joins an existing one; signups are disabled on the project, and the MCP entry point refuses any identity that is not `OWNER_EMAIL`. Only the scheduled trigger may call the worker endpoint, and it presents the worker secret that the `ai-worker` Edge Function compares before touching the service role.
@@ -61,4 +69,4 @@ Route handlers and server components establish the caller through `getVerifiedUs
 
 ## Deferred systems
 
-Local ComfyUI integration is deferred until the target host GPU, VRAM, drivers, model licenses, and workflow JSON are known. Billing tiers, prompt caching, layer decomposition, background removal, relighting, multi-view generation, OCR editing, mood boards, and template systems are outside this release. Provider pricing remains external operational data rather than an architectural invariant.
+Local ComfyUI integration is deferred until the target host GPU, VRAM, drivers, model licenses, and workflow JSON are known. Automatic foreground segmentation for element extraction is not implemented: exact extraction uses a matte the user paints, and reconstruction is an explicit, separately confirmed action. Billing tiers, prompt caching, layer decomposition, relighting, multi-view generation, OCR editing, mood boards, and template systems are outside this release. Provider pricing remains external operational data rather than an architectural invariant.

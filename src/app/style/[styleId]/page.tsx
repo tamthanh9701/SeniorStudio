@@ -33,6 +33,16 @@ export default async function StyleGroupPage({
   const user = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
+  // A Game UI style has its own workspace; this one edits a scene schema and
+  // would show it as an empty candidate. Old links land in the right place.
+  const { data: domainRow } = await supabase.from("styles").select("domain").eq("id", styleId).maybeSingle();
+  if (domainRow?.domain === "game_ui") {
+    const preserved = new URLSearchParams();
+    if (query.tab) preserved.set("tab", query.tab);
+    const suffix = preserved.size > 0 ? `?${preserved.toString()}` : "";
+    redirect(`/game-ui/${styleId}${suffix}`);
+  }
+
   // Older links and bookmarks used `tab=gallery`; the gallery is now the Images tab.
   if (query.tab === "gallery") {
     const preserved = new URLSearchParams({ tab: "images" });

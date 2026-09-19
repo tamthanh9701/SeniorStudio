@@ -21,6 +21,12 @@ function flagDisabled() {
   return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
 }
 
+/** Game UI styles carry a different schema and module; these routes only serve visual ones. */
+function rejectGameUiDomain(domain: unknown) {
+  if (domain !== "game_ui") return null;
+  return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Use the Game UI module for this style" } }, { status: 400 });
+}
+
 export async function GET(_request: Request, { params }: { params: Promise<{ styleId: string }> }) {
   if (!styleProfilesEnabled()) return flagDisabled();
   const { styleId } = await params;
@@ -29,6 +35,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ sty
   if (!user) return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, { status: 401 });
   const style = await getStyleDetail(supabase, styleId);
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+  const domainRejection = rejectGameUiDomain("domain" in style ? style.domain : undefined);
+  if (domainRejection) return domainRejection;
   return NextResponse.json({ style });
 }
 
@@ -41,8 +49,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ st
   const parsed = PatchStyleSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "INVALID_REQUEST", message: "Only name, status, libraryId, and schema may be updated" } }, { status: 400 });
 
-  const { data: style } = await supabase.from("styles").select("id, status, schema, fingerprint, invariant_contract, analysis_meta, operability, updated_at").eq("id", styleId).maybeSingle();
+  const { data: style } = await supabase.from("styles").select("id, status, domain, schema, fingerprint, invariant_contract, analysis_meta, operability, updated_at").eq("id", styleId).maybeSingle();
   if (!style) return NextResponse.json({ error: { code: "STYLE_NOT_FOUND", message: "Style not found" } }, { status: 404 });
+  const domainRejection = rejectGameUiDomain(style.domain);
+  if (domainRejection) return domainRejection;
 
   // Confirming a style publishes the analysed candidate as the durable
   // definition used for generation.  It is a distinct operation from editing

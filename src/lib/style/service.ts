@@ -4,19 +4,21 @@
 // candidate schema.
 import { getServiceClient, createClient } from "@/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { STORAGE_BUCKET } from "@/db/schema";
 import { StyleError } from "./errors";
 import { normalizePromptSchema } from "./normalize-prompt-schema";
 import { lintAndFixStyleSchema } from "./linter";
 import { buildStyleInvariantContract, critiqueStyleSchema } from "./invariant-contract";
 import { buildStyleGenerationPrompt, type PromptSchema } from "./prompt-schema";
-import { preprocessReferences, type ReferenceInput, type ReferencePreprocessSummary } from "./reference-preprocess";
-import { downscaleReferences } from "./analysis-references";
 import { resolveStyleProviderConfig } from "./providers/config";
-import { GoogleStyleProvider } from "./providers/google";
-import { OpenAiStyleProvider } from "./providers/openai";
-import { ANALYZE_STYLE_SYSTEM, buildAnalysisUserMessage, pickAiPromptSchema, stripMarkdownFence } from "./providers/prompts";
-import type { StyleAnalysisProvider } from "./providers/types";
+import { ANALYZE_STYLE_SYSTEM, buildAnalysisUserMessage, pickAiPromptSchema } from "./providers/prompts";
+import {
+  ANALYSIS_TIMEOUT_MS,
+  loadAnalysisReferences,
+  parseAnalysisJson,
+  requestStyleAnalysis,
+  type AnalysisReferenceRow,
+} from "./analysis-runner";
+import { analyzeGameUiStyle } from "@/lib/game-ui/style-analysis";
 import { STYLE_ANALYSIS_FRAMEWORK_VERSION } from "./analysis-framework";
 import { buildStyleClarificationQuestions } from "./clarification-questions";
 import { scoreStyleOperability } from "./operability-scorer";
@@ -25,7 +27,6 @@ import { styleFingerprintToPrompt, type StyleFingerprint } from "./fingerprint";
 import { getStyleBudget, type CostMode } from "./cost-modes";
 
 export const STYLE_ENGINE_SOURCE_COMMIT = "dfab2fea903923e4a19171cc4a2eb4cf4144d8ae";
-const PROVIDER_TIMEOUT_MS = 150_000;
 
 export interface StyleRow {
   id: string;
@@ -52,18 +53,6 @@ interface StyleReferenceRow {
   content_hash: string | null;
 }
 
-function buildProvider(providerId: "openai" | "google", model: string, apiKey: string): StyleAnalysisProvider {
-  return providerId === "google"
-    ? new GoogleStyleProvider(apiKey, model)
-    : new OpenAiStyleProvider(apiKey, model);
-}
-
-async function downloadReferenceBytes(service: SupabaseClient, path: string): Promise<Buffer> {
-  const { data, error } = await service.storage.from(STORAGE_BUCKET).download(path);
-  if (error || !data) throw new StyleError("STYLE_ANALYSIS_FAILED", `Failed to load reference ${path} from storage`);
-  return Buffer.from(await data.arrayBuffer());
-}
-
 export async function analyzeStyleProfile(params: {
   styleId: string;
   userContext?: string;
@@ -75,6 +64,10 @@ export async function analyzeStyleProfile(params: {
   const { data: style, error: styleError } = await client
     .from("styles").select("*").eq("id", styleId).maybeSingle();
   if (styleError || !style) throw new StyleError("STYLE_NOT_FOUND", "Style not found");
+  // The stored domain decides how a reference set is read; a caller cannot pick it.
+  if ((style as { domain?: string }).domain === "game_ui") {
+    return (await analyzeGameUiStyle({ styleId, userContext, client })) as unknown as StyleRow;
+  }
 
   const { data: references, error: refsError } = await client
     .from("style_references").select("id, storage_path, mime_type, byte_size, content_hash").eq("style_id", styleId).is("retired_at", null).order("created_at").order("id");
@@ -91,23 +84,17 @@ export async function analyzeStyleProfile(params: {
   }
 
   const service = getServiceClient();
-  const bytes = await Promise.all(
-    (references as StyleReferenceRow[]).map(async (reference) => ({
-      reference,
-      buffer: await downloadReferenceBytes(service, reference.storage_path),
-    })),
-  );
-  const inputs: ReferenceInput[] = bytes.map(({ reference, buffer }) => ({
-    id: reference.id, buffer, mimeType: reference.mime_type,
-  }));
-  const referenceSummary = await preprocessReferences(inputs);
+  const referenceSet = await loadAnalysisReferences({
+    service,
+    references: references as AnalysisReferenceRow[],
+  });
+  const { inputs, summary: referenceSummary, bounded } = referenceSet;
 
   const config = await resolveStyleProviderConfig({ service, workspaceId: style.workspace_id });
-  const provider = buildProvider(config.provider, config.model, config.apiKey);
-  // The provider receives bounded copies; the report above was measured on the originals.
-  const analysisReferences = await downscaleReferences(inputs);
-  const result = await provider.analyze({
-    references: analysisReferences.map(({ buffer, mimeType }) => ({ buffer, mimeType })),
+  const rawText = await requestStyleAnalysis({
+    config,
+    references: bounded,
+    summary: referenceSummary,
     systemPrompt: ANALYZE_STYLE_SYSTEM,
     userMessage: buildAnalysisUserMessage({
       styleName: style.name,
@@ -115,16 +102,9 @@ export async function analyzeStyleProfile(params: {
       userContext,
       referenceSummary,
     }),
-    referenceSummary,
-    timeoutMs: PROVIDER_TIMEOUT_MS,
+    timeoutMs: ANALYSIS_TIMEOUT_MS,
   });
-
-  let candidate: unknown;
-  try {
-    candidate = JSON.parse(stripMarkdownFence(result.rawText));
-  } catch {
-    throw new StyleError("STYLE_ANALYSIS_UNPARSED", "Analysis reply was not valid JSON");
-  }
+  const candidate = parseAnalysisJson(rawText, "STYLE_ANALYSIS_UNPARSED", "Analysis reply was not valid JSON");
   const normalized = normalizePromptSchema(candidate);
   const schema = pickAiPromptSchema(normalized);
   if (!schema) throw new StyleError("STYLE_ANALYSIS_UNPARSED", "Analysis reply did not contain a recognizable style schema");

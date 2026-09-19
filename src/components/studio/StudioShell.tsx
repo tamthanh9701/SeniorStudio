@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Images, Settings2, Sparkles, SwatchBook, X } from "lucide-react";
+import { Images, LayoutPanelTop, Settings2, Sparkles, SwatchBook, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -77,10 +77,11 @@ export default function StudioShell({ projects, activeProjectId, leftSidebar, ce
       )}
 
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 backdrop-blur xl:hidden">
-        <ul className="grid grid-cols-3">
+        <ul className="grid grid-cols-4">
           {[
             { href: "/projects", label: "Playground", icon: Images },
             { href: "/style", label: "Styles", icon: SwatchBook },
+            { href: "/game-ui", label: "Game UI Style", icon: LayoutPanelTop },
             { href: "/settings", label: "Settings", icon: Settings2 },
           ].map((entry) => {
             const active = pathname === entry.href || pathname.startsWith(`${entry.href}/`);

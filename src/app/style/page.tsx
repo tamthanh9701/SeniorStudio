@@ -23,7 +23,7 @@ export default async function StylePage({ searchParams }: { searchParams: Promis
   const [{ data: projects }, { data: libraries }, { data: styles }] = await Promise.all([
     supabase.from("projects").select("id, name").order("created_at", { ascending: false }),
     supabase.from("style_libraries").select("id, name").order("sort_order").order("name"),
-    supabase.from("styles").select("id, name, updated_at, assets(count)").order("updated_at", { ascending: false }).limit(6),
+    supabase.from("styles").select("id, name, updated_at, assets(count)").eq("domain", "visual").order("updated_at", { ascending: false }).limit(6),
   ]);
   const libraryList = (libraries ?? []).map((library) => ({ id: library.id as string, name: library.name as string }));
   const recentStyles = (styles ?? []).map((style) => ({
