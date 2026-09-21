@@ -66,6 +66,18 @@ const nextConfig = {
       },
     ],
   },
+  // The Vercel Node runtime this project deploys to is glibc; sharp's musl build is
+  // never loaded, but the default trace ships both x64 and musl libvips (~36 MiB
+  // unzipped) into every lambda — and the Vercel Function Storage meter counts that
+  // per route. Excluding the unused musl binaries keeps only the glibc build, with no
+  // runtime behavior change.
+  outputFileTracingExcludes: {
+    "/**": [
+      "./node_modules/@img/sharp-libvips-linuxmusl-x64/**",
+      "./node_modules/@img/sharp-linuxmusl-x64/**",
+    ],
+  },
+  outputFileTracingRoot: __dirname,
 };
 
 module.exports = nextConfig;
